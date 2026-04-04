@@ -1,0 +1,31 @@
+package commands
+
+import "testing"
+
+func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
+	help := BuildOptionHelp()
+
+	if help["garble"] != "Use garble to obfuscate the binary (requires garble to be installed)" {
+		t.Fatalf("unexpected garble help: %q", help["garble"])
+	}
+
+	if help["upx"] != "Use upx to compress the final binary (requires upx to be installed)" {
+		t.Fatalf("unexpected upx help: %q", help["upx"])
+	}
+
+	if help["lzma"] != "Use lzma compression for smaller binary at the cost of overhead at execution (requires upx flag to be set)" {
+		t.Fatalf("unexpected lzma help: %q", help["lzma"])
+	}
+
+	if help["shared-object"] != "Generate shared object file" {
+		t.Fatalf("unexpected shared-object help: %q", help["shared-object"])
+	}
+
+	if help["raw-download"] != "Download over raw TCP, outputs bash downloader rather than http" {
+		t.Fatalf("unexpected raw-download help: %q", help["raw-download"])
+	}
+
+	if help["use-host-header"] != "Use HTTP Host header as callback address when generating download template (add .sh to your download urls and find out)" {
+		t.Fatalf("unexpected use-host-header help: %q", help["use-host-header"])
+	}
+}

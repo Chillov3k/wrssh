@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSSH Admin Client Shell</title>
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <h1>WRSSH</h1>
+        
+      </div>
+
+      <div id="projectContext" class="project-context hidden">
+        <p class="eyebrow">Project</p>
+        <strong id="sidebarProjectName">-</strong>
+        <div id="sidebarProjectTags" class="tag-list"></div>
+        <a id="changeProjectLink" class="ghost-button action-link" href="/projects">Change Project</a>
+      </div>
+
+      <nav class="nav-list">
+        <a class="nav-item" href="/overview">Overview</a>
+        <a class="nav-item active" href="/hosts">Hosts</a>
+        <a class="nav-item" href="/builds">Builds</a>
+        <a class="nav-item" href="/downloads">Downloads</a>
+        <a class="nav-item hidden" data-admin-only href="/users">Manage Users</a>
+      </nav>
+
+      <div class="user-card">
+        <p class="user-card-title">Signed in as <strong id="currentUserName">-</strong></p>
+        <div class="user-card-actions">
+          <button id="editProfileButton" class="ghost-button" type="button">Edit</button>
+          <button id="logoutButton" class="ghost-button" type="button">Logout</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Client Shell</p>
+          <h2 id="viewTitle">Client Shell</h2>
+          <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
+        </div>
+        <button id="refreshButton" class="action-button">Refresh</button>
+      </header>
+
+      <section class="page-body">
+        <div class="panel host-detail-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Client</p>
+              <h3>Interactive Session</h3>
+            </div>
+            <a id="backToHostsLink" class="ghost-button action-link" href="/hosts">Back To Hosts</a>
+          </div>
+
+          <div id="hostDetailEmpty" class="empty-state">
+            <p>Select a client from the hosts page to open its dedicated terminal page.</p>
+          </div>
+
+          <div id="hostDetailContent" class="host-detail hidden">
+            <div class="detail-head">
+              <div>
+                <p class="eyebrow">Selected Client</p>
+                <h3 id="detailHostname">-</h3>
+                <p id="detailSubline" class="muted">-</p>
+              </div>
+              <span id="detailStatusBadge" class="status-pill">Offline</span>
+            </div>
+
+            <div class="detail-grid detail-grid-wide">
+              <div class="detail-field">
+                <span>Connection ID</span>
+                <strong id="detailHostId">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Stable ID</span>
+                <strong id="detailStableId">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>IP</span>
+                <strong id="detailIp">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Hostname</span>
+                <strong id="detailHostnameMeta">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>OS</span>
+                <strong id="detailPlatform">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Date Added</span>
+                <strong id="detailAdded">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Last Activity</span>
+                <strong id="detailActivity">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Last Connection</span>
+                <strong id="detailConnection">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Project</span>
+                <strong id="detailProjectValue">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Tags</span>
+                <strong id="detailTagsValue">-</strong>
+              </div>
+            </div>
+
+            <div class="subpanel shell-panel">
+              <div class="terminal-header">
+                <div>
+                  <p class="eyebrow">Interactive Shell</p>
+                  <h4 id="terminalTitle">Terminal</h4>
+                  <p id="selectedConnectionSummary" class="muted shell-copy">Open a client from Hosts to attach this page to that specific live connection.</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="openTerminalButton" class="action-button">Open Terminal</button>
+                  <button id="sendCtrlCButton" class="ghost-button">Ctrl+C</button>
+                  <button id="closeTerminalButton" class="ghost-button">Disconnect</button>
+                </div>
+              </div>
+              <div id="terminalViewport" class="terminal-viewport terminal-inline" tabindex="0">
+                <pre id="terminalOutput" class="terminal-output"></pre>
+              </div>
+              <p class="muted terminal-help">This page keeps the terminal attached to the selected connection.</p>
+            </div>
+
+            <div class="subpanel">
+              <div class="subpanel-header">
+                <div>
+                  <p class="eyebrow">Connect</p>
+                  <h4>Connection Commands</h4>
+                </div>
+              </div>
+              <div id="commandTemplates" class="command-grid"></div>
+            </div>
+
+            <div id="hostMetadataPanel" class="subpanel hidden">
+              <div class="subpanel-header">
+                <div>
+                  <p class="eyebrow">Client</p>
+                  <h4>Edit Client</h4>
+                </div>
+              </div>
+              <label class="field-stack">
+                <span>Hostname</span>
+                <input id="hostDisplayNameInput" type="text" maxlength="255" placeholder="custom-hostname">
+              </label>
+              <label class="field-stack">
+                <span>Tags</span>
+                <input id="hostTagsInput" type="text" placeholder="linux,lab,prod">
+              </label>
+              <label class="field-stack">
+                <span>Project</span>
+                <select id="hostProjectSelect"></select>
+              </label>
+              <div class="inline-actions">
+                <button id="saveHostMetadataButton" class="action-button">Save Changes</button>
+              </div>
+              <pre id="hostMetadataOutput" class="output-block small-output"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="overlay visible">
+    <div class="overlay-card">
+      <p class="eyebrow">Authenticate</p>
+      <h2>Sign In To RSSH Admin</h2>
+      <form id="loginForm" class="login-form">
+        <label class="field-stack">
+          <span>Username</span>
+          <input id="loginUsername" type="text" autocomplete="username" required>
+        </label>
+        <label class="field-stack">
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="action-button" type="submit">Login</button>
+      </form>
+      <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/host.js"></script>
+</body>
+</html>

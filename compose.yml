@@ -1,0 +1,89 @@
+name: wrssh
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        export POSTGRES_DB="${POSTGRES_DB}"
+        export POSTGRES_USER="${POSTGRES_USER}"
+        export POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
+        exec docker-entrypoint.sh postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  platform:
+    image: ${WEB_PLATFORM_IMAGE:-wrssh-platform:local}
+    build:
+      context: .
+      dockerfile: docker/platform/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      runtime-image:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    volumes:
+      - rssh_data:/data
+      - ${WEB_RUNTIME_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    extra_hosts:
+      - "${WEB_RUNTIME_AGENT_HOST}:host-gateway"
+    expose:
+      - "8080"
+    ports:
+      - "${CONTROL_PLANE_SSH_PORT}:${RSSH_PORT}"
+
+  frontend:
+    image: ${WEB_FRONTEND_IMAGE:-wrssh-frontend:local}
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - platform
+    ports:
+      - "${WEB_UI_PORT}:80"
+
+  runtime-image:
+    image: ${WEB_RUNTIME_IMAGE:-wrssh-runtime:local}
+    build:
+      context: .
+      dockerfile: docker/runtime/Dockerfile
+    network_mode: none
+    read_only: true
+    restart: "no"
+    entrypoint:
+      - /bin/true
+
+  cleanup:
+    image: docker:cli
+    profiles:
+      - ops
+    network_mode: none
+    restart: "no"
+    environment:
+      WRSSH_STACK_NAME: wrssh
+    volumes:
+      - ${WEB_RUNTIME_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - ./docker/cleanup/cleanup.sh:/cleanup.sh:ro
+    entrypoint:
+      - /bin/sh
+      - /cleanup.sh
+
+volumes:
+  postgres_data:
+  rssh_data:

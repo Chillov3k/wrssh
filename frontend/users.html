@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSSH Admin Manage Users</title>
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <h1>WRSSH</h1>
+        
+      </div>
+
+      <nav class="nav-list">
+        <a class="nav-item" href="/projects">Projects</a>
+        <a class="nav-item active hidden" data-admin-only href="/users">Manage Users</a>
+      </nav>
+
+      <div class="user-card">
+        <p class="user-card-title">Signed in as <strong id="currentUserName">-</strong></p>
+        <div class="user-card-actions">
+          <button id="editProfileButton" class="ghost-button" type="button">Edit</button>
+          <button id="logoutButton" class="ghost-button" type="button">Logout</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Identity</p>
+          <h2 id="viewTitle">Manage Users</h2>
+          <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
+        </div>
+        <button id="refreshButton" class="action-button">Refresh</button>
+      </header>
+
+      <section class="page-body">
+        <div id="usersNoAccess" class="panel hidden">
+          <div class="empty-state compact-empty">
+            <p>Only the administrator can create users, assign project access, or rotate credentials.</p>
+          </div>
+        </div>
+
+        <div id="usersAdminViews" class="users-admin-views hidden">
+          <div class="user-catalog-layout">
+            <div class="panel users-create-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Create</p>
+                  <h3>New Managed User</h3>
+                </div>
+              </div>
+              <form id="createUserForm" class="field-stack">
+                <label class="field-stack">
+                  <span>Username</span>
+                  <input id="createUsernameInput" type="text" maxlength="128" placeholder="alice" required>
+                </label>
+                <label class="check-row">
+                  <input id="createCanCreateProjects" type="checkbox">
+                  Allow creating new projects
+                </label>
+                <div class="field-stack">
+                  <span>Allowed Projects</span>
+                  <div id="createProjectsPicker" class="project-picker-shell"></div>
+                </div>
+                <label class="field-stack">
+                  <span>SSH Public Keys</span>
+                  <textarea id="createAuthorizedKeysInput" rows="8" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+                </label>
+                <button id="createUserButton" class="action-button" type="submit">Create User</button>
+              </form>
+              <div id="createUserOutput" class="field-note output-note hidden"></div>
+            </div>
+
+            <div class="panel users-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Inventory</p>
+                  <h3>Managed Users</h3>
+                </div>
+              </div>
+              <div id="managedUsersList" class="user-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="overlay visible">
+    <div class="overlay-card">
+      <p class="eyebrow">Authenticate</p>
+      <h2>Sign In To RSSH Admin</h2>
+      <form id="loginForm" class="login-form">
+        <label class="field-stack">
+          <span>Username</span>
+          <input id="loginUsername" type="text" autocomplete="username" required>
+        </label>
+        <label class="field-stack">
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="action-button" type="submit">Login</button>
+      </form>
+      <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/users.js"></script>
+</body>
+</html>

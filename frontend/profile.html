@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSSH Admin Profile</title>
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <h1>WRSSH</h1>
+      </div>
+
+      <nav class="nav-list">
+        <a class="nav-item" href="/projects">Projects</a>
+        <a class="nav-item hidden" data-admin-only href="/users">Manage Users</a>
+      </nav>
+
+      <div class="user-card">
+        <p class="user-card-title">Signed in as <strong id="currentUserName">-</strong></p>
+        <div class="user-card-actions">
+          <button id="editProfileButton" class="ghost-button" type="button">Edit</button>
+          <button id="logoutButton" class="ghost-button" type="button">Logout</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Identity</p>
+          <h2 id="viewTitle">Profile</h2>
+          <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
+        </div>
+        <a class="ghost-button action-link" href="/projects">Back To Projects</a>
+      </header>
+
+      <section class="page-body">
+        <div id="profileNotice" class="panel profile-notice hidden">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Action Required</p>
+              <h3>Change Your Password</h3>
+            </div>
+          </div>
+          <p class="muted">Your current password is temporary. Set a new password before continuing.</p>
+        </div>
+
+        <div class="profile-layout">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Profile</p>
+                <h3>Account</h3>
+              </div>
+            </div>
+
+            <div class="detail-grid">
+              <div class="detail-field">
+                <span>Username</span>
+                <strong id="profileUsername">-</strong>
+              </div>
+              <div class="detail-field">
+                <span>Role</span>
+                <strong id="profileRole">-</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">SSH</p>
+                <h3>SSH Public Keys</h3>
+              </div>
+            </div>
+
+            <form id="profileKeysForm" class="field-stack">
+              <label class="field-stack">
+                <span>SSH Public Keys</span>
+                <textarea id="profileAuthorizedKeysInput" rows="10" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="saveProfileKeysButton" class="action-button" type="submit">Save SSH Keys</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Password</p>
+                <h3>Change Password</h3>
+              </div>
+            </div>
+
+            <form id="profilePasswordForm" class="field-stack">
+              <label class="field-stack">
+                <span>Current Password</span>
+                <input id="profileCurrentPasswordInput" type="password" autocomplete="current-password" required>
+              </label>
+              <label class="field-stack">
+                <span>New Password</span>
+                <input id="profileNewPasswordInput" type="password" autocomplete="new-password" required>
+              </label>
+              <label class="field-stack">
+                <span>Confirm New Password</span>
+                <input id="profileConfirmPasswordInput" type="password" autocomplete="new-password" required>
+              </label>
+              <div id="profilePasswordMessage" class="field-note hidden"></div>
+              <div class="inline-actions">
+                <button id="saveProfilePasswordButton" class="action-button" type="submit">Change Password</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="profileOutput" class="field-note output-note hidden"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="overlay visible">
+    <div class="overlay-card">
+      <p class="eyebrow">Authenticate</p>
+      <h2>Sign In To RSSH Admin</h2>
+      <form id="loginForm" class="login-form">
+        <label class="field-stack">
+          <span>Username</span>
+          <input id="loginUsername" type="text" autocomplete="username" required>
+        </label>
+        <label class="field-stack">
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="action-button" type="submit">Login</button>
+      </form>
+      <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/profile.js"></script>
+</body>
+</html>
