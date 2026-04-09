@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,11 +23,12 @@ import (
 const runtimeBuildAPITimeout = 5 * time.Minute
 
 type Manager struct {
-	cfg             platformconfig.Config
-	store           *store.Store
-	docker          *DockerClient
-	httpClient      *http.Client
-	buildHTTPClient *http.Client
+	cfg               platformconfig.Config
+	store             *store.Store
+	docker            *DockerClient
+	httpClient        *http.Client
+	buildHTTPClient   *http.Client
+	platformContainer string
 }
 
 func NewManager(ctx context.Context, cfg platformconfig.Config, appStore *store.Store) (*Manager, error) {
@@ -40,9 +42,10 @@ func NewManager(ctx context.Context, cfg platformconfig.Config, appStore *store.
 	}
 
 	return &Manager{
-		cfg:    cfg,
-		store:  appStore,
-		docker: dockerClient,
+		cfg:               cfg,
+		store:             appStore,
+		docker:            dockerClient,
+		platformContainer: currentPlatformContainerName(),
 		httpClient: &http.Client{
 			Timeout: time.Duration(cfg.RuntimeAPITimeout) * time.Second,
 		},
@@ -50,6 +53,20 @@ func NewManager(ctx context.Context, cfg platformconfig.Config, appStore *store.
 			Timeout: runtimeBuildAPITimeout,
 		},
 	}, nil
+}
+
+func currentPlatformContainerName() string {
+	if value := strings.TrimSpace(os.Getenv("PLATFORM_CONTAINER_NAME")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv("HOSTNAME")); value != "" {
+		return value
+	}
+	value, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func (m *Manager) EnsureProjectRuntimes(ctx context.Context) error {
@@ -256,6 +273,7 @@ func (m *Manager) DeprovisionProject(ctx context.Context, projectName string) er
 	_ = m.docker.RemoveContainer(ctx, runtime.RuntimeContainer)
 	_ = m.docker.RemoveContainer(ctx, runtime.DatabaseContainer)
 	_ = m.docker.RemoveNetwork(ctx, runtime.DatabaseNetwork)
+	_ = m.disconnectPlatformFromRuntimeNetwork(ctx, runtime.ControlPlaneNetwork)
 	_ = m.docker.RemoveNetwork(ctx, runtime.ControlPlaneNetwork)
 	_ = m.docker.RemoveVolume(ctx, runtime.RuntimeVolume)
 	_ = m.docker.RemoveVolume(ctx, runtime.DatabaseVolume)
@@ -350,6 +368,9 @@ func (m *Manager) resetRuntimeResources(ctx context.Context, runtime store.Proje
 	if err := m.docker.RemoveNetwork(ctx, runtime.DatabaseNetwork); err != nil {
 		return err
 	}
+	if err := m.disconnectPlatformFromRuntimeNetwork(ctx, runtime.ControlPlaneNetwork); err != nil {
+		return err
+	}
 	if err := m.docker.RemoveNetwork(ctx, runtime.ControlPlaneNetwork); err != nil {
 		return err
 	}
@@ -376,6 +397,9 @@ func (m *Manager) ensureRuntimeResources(ctx context.Context, projectName string
 	}
 	log.Printf("[runtime:%s] ensure network %s", projectName, runtime.ControlPlaneNetwork)
 	if err := m.docker.EnsureNetwork(ctx, runtime.ControlPlaneNetwork, false, labels); err != nil {
+		return err
+	}
+	if err := m.connectPlatformToRuntimeNetwork(ctx, runtime.ControlPlaneNetwork); err != nil {
 		return err
 	}
 	log.Printf("[runtime:%s] ensure network %s", projectName, runtime.DatabaseNetwork)
@@ -464,6 +488,9 @@ func (m *Manager) ensureRuntimeResources(ctx context.Context, projectName string
 	if err := m.ensureContainerImageCurrent(ctx, runtime.RuntimeContainer, m.cfg.RuntimeImage); err != nil {
 		return err
 	}
+	if err := m.ensureRuntimeContainerConfigCurrent(ctx, runtime); err != nil {
+		return err
+	}
 	if err := m.docker.EnsureContainer(ctx, runtime.RuntimeContainer, map[string]any{
 		"Image":  m.cfg.RuntimeImage,
 		"Env":    runtimeEnv,
@@ -510,6 +537,76 @@ func (m *Manager) ensureRuntimeResources(ctx context.Context, projectName string
 
 	log.Printf("[runtime:%s] start runtime container %s", projectName, runtime.RuntimeContainer)
 	return m.docker.StartContainer(ctx, runtime.RuntimeContainer)
+}
+
+func (m *Manager) ensureRuntimeContainerConfigCurrent(ctx context.Context, runtime store.ProjectRuntimeRecord) error {
+	if m == nil {
+		return nil
+	}
+
+	inspect, err := m.docker.InspectContainer(ctx, runtime.RuntimeContainer)
+	if err != nil {
+		if errors.Is(err, ErrDockerNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	sshPortKey := fmt.Sprintf("%d/tcp", m.cfg.RSSHListenPort)
+	if !hasPublishedPortBinding(inspect, sshPortKey, m.cfg.RuntimeBindIP, runtime.SSHPublishedPort) {
+		log.Printf("[runtime] recreate %s because SSH port binding drift detected", runtime.RuntimeContainer)
+		return m.docker.RemoveContainer(ctx, runtime.RuntimeContainer)
+	}
+
+	agentPortKey := fmt.Sprintf("%d/tcp", runtime.AgentListenPort)
+	if !hasPublishedPortBinding(inspect, agentPortKey, m.cfg.RuntimeBindIP, runtime.AgentPublishedPort) {
+		log.Printf("[runtime] recreate %s because runtime-agent port binding drift detected", runtime.RuntimeContainer)
+		return m.docker.RemoveContainer(ctx, runtime.RuntimeContainer)
+	}
+
+	return nil
+}
+
+func hasPublishedPortBinding(inspect containerInspectResponse, portKey, bindIP string, hostPort int) bool {
+	if hostPort <= 0 {
+		return false
+	}
+
+	bindings, ok := inspect.NetworkSettings.Ports[portKey]
+	if !ok || len(bindings) == 0 {
+		return false
+	}
+
+	expectedPort := strconv.Itoa(hostPort)
+	expectedIP := strings.TrimSpace(bindIP)
+	for _, binding := range bindings {
+		if strings.TrimSpace(binding.HostPort) != expectedPort {
+			continue
+		}
+		actualIP := strings.TrimSpace(binding.HostIP)
+		if expectedIP == "" || expectedIP == actualIP {
+			return true
+		}
+		if expectedIP == "0.0.0.0" && actualIP == "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *Manager) connectPlatformToRuntimeNetwork(ctx context.Context, networkName string) error {
+	if m == nil || m.platformContainer == "" || strings.TrimSpace(networkName) == "" {
+		return nil
+	}
+	return m.docker.EnsureNetworkConnected(ctx, networkName, m.platformContainer, nil)
+}
+
+func (m *Manager) disconnectPlatformFromRuntimeNetwork(ctx context.Context, networkName string) error {
+	if m == nil || m.platformContainer == "" || strings.TrimSpace(networkName) == "" {
+		return nil
+	}
+	return m.docker.DisconnectContainerFromNetwork(ctx, networkName, m.platformContainer)
 }
 
 func (m *Manager) ensureContainerImageCurrent(ctx context.Context, containerName, imageRef string) error {

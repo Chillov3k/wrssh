@@ -143,6 +143,7 @@ func (s *Store) CreateManagedUser(username, password string, canCreateProjects b
 	user := WebUser{
 		Username:           username,
 		PasswordHash:       string(hash),
+		SessionVersion:     0,
 		MustChangePassword: true,
 		Role:               "user",
 		RSSHUsername:       username,

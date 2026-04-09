@@ -126,6 +126,7 @@ func (s *Store) ReserveProjectRuntime(projectName string, reservation ProjectRun
 		}
 
 		slug := makeRuntimeSlug(project.ID, project.Name)
+		runtimeContainer := runtimeContainerName(slug)
 		runtime = ProjectRuntimeRecord{
 			ProjectID:           project.ID,
 			RuntimeSlug:         slug,
@@ -136,7 +137,7 @@ func (s *Store) ReserveProjectRuntime(projectName string, reservation ProjectRun
 			AgentListenPort:     reservation.AgentListenPort,
 			AgentPublishedPort:  agentPort,
 			AgentBaseURL:        fmt.Sprintf("http://%s:%d", agentBaseHost, agentPort),
-			RuntimeContainer:    runtimeContainerName(slug),
+			RuntimeContainer:    runtimeContainer,
 			DatabaseContainer:   runtimeDBContainerName(slug),
 			ControlPlaneNetwork: runtimeControlPlaneNetworkName(slug),
 			DatabaseNetwork:     runtimeDatabaseNetworkName(slug),

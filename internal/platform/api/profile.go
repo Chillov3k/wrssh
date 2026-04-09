@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/NHAS/reverse_ssh/internal/platform/store"
 	"github.com/NHAS/reverse_ssh/internal/platform/userkeys"
@@ -90,6 +91,19 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	if patch.Password != nil {
+		rotated, err := s.store.RotateUserSessionVersion(current.Username)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = rotated
+		if err := s.auth.SetSessionCookie(w, updated.ID, updated.SessionVersion, 12*time.Hour); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	if patch.SSHAuthorizedKeys != nil {

@@ -194,6 +194,15 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if patch.Password != nil {
+		rotated, err := s.store.RotateUserSessionVersion(targetUsername)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = rotated
+	}
+
 	if patch.SSHAuthorizedKeys != nil {
 		if err := userkeys.SyncUserAuthorizedKeys(s.cfg.DataDir, updated.Username, *patch.SSHAuthorizedKeys); err != nil {
 			rollback := current.SSHAuthorizedKeys

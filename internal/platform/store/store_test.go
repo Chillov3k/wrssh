@@ -92,6 +92,38 @@ func TestUpdateManagedUserCanClearTemporaryPassword(t *testing.T) {
 	}
 }
 
+func TestRotateUserSessionVersion(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.EnsureUser("admin", "secret", "admin", "admin"); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+
+	user, err := store.GetUserByUsername("admin")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if user.SessionVersion != 0 {
+		t.Fatalf("expected initial session version 0, got %d", user.SessionVersion)
+	}
+
+	rotated, err := store.RotateUserSessionVersion("admin")
+	if err != nil {
+		t.Fatalf("rotate by username: %v", err)
+	}
+	if rotated.SessionVersion != 1 {
+		t.Fatalf("expected session version 1 after first rotation, got %d", rotated.SessionVersion)
+	}
+
+	rotated, err = store.RotateUserSessionVersionByID(rotated.ID)
+	if err != nil {
+		t.Fatalf("rotate by id: %v", err)
+	}
+	if rotated.SessionVersion != 2 {
+		t.Fatalf("expected session version 2 after second rotation, got %d", rotated.SessionVersion)
+	}
+}
+
 func TestValidatePasswordComplexity(t *testing.T) {
 	if err := ValidatePasswordComplexity("weakpass"); err == nil {
 		t.Fatal("expected weak password to fail")

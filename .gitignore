@@ -43,4 +43,5 @@ coverage.out
 tmp/*
 .tmp/*
 .cache/*
+api.md
 test-results/*

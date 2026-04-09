@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,6 +28,10 @@ var (
 
 	validPlatforms = make(map[string]bool)
 	validArchs     = make(map[string]bool)
+
+	validArtifactName     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+	validWorkingDirectory = regexp.MustCompile(`^[A-Za-z0-9_./~:@+\\ -]{1,255}$`)
+	singleTokenBuildValue = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]+$`)
 )
 
 type BuildConfig struct {
@@ -59,13 +64,16 @@ func Build(config BuildConfig) (string, error) {
 	if !webserverOn {
 		return "", errors.New("web server is not enabled")
 	}
+	if err := validateBuildConfig(config); err != nil {
+		return "", err
+	}
 
 	if len(config.GOARCH) != 0 && !validArchs[config.GOARCH] {
-		return "", fmt.Errorf("GOARCH supplied is not valid: " + config.GOARCH)
+		return "", fmt.Errorf("GOARCH supplied is not valid: %s", config.GOARCH)
 	}
 
 	if len(config.GOOS) != 0 && !validPlatforms[config.GOOS] {
-		return "", fmt.Errorf("GOOS supplied is not valid: " + config.GOOS)
+		return "", fmt.Errorf("GOOS supplied is not valid: %s", config.GOOS)
 	}
 
 	if len(config.Fingerprint) == 0 {
@@ -205,14 +213,14 @@ func Build(config BuildConfig) (string, error) {
 			strings.Contains(err.Error(), "undefined reference to") {
 			// Try to recover if the linking fails by clearing the cache
 			if cleanErr := exec.Command("go", "clean", "-cache").Run(); cleanErr != nil {
-				return "", fmt.Errorf("Error (was unable to automatically clean cache): " + err.Error() + "\n" + string(output))
+				return "", fmt.Errorf("error (was unable to automatically clean cache): %s\n%s", err.Error(), string(output))
 			}
 			output, err = cmd.CombinedOutput()
 			if err != nil {
-				return "", fmt.Errorf("Error: " + err.Error() + "\n" + string(output))
+				return "", fmt.Errorf("error: %s\n%s", err.Error(), string(output))
 			}
 		} else {
-			return "", fmt.Errorf("Error: " + err.Error() + "\n" + string(output))
+			return "", fmt.Errorf("error: %s\n%s", err.Error(), string(output))
 		}
 	}
 
@@ -318,4 +326,55 @@ func startBuildManager(_cachePath string) error {
 	cachePath = _cachePath
 
 	return nil
+}
+
+func validateBuildConfig(config BuildConfig) error {
+	config.Name = strings.TrimSpace(config.Name)
+	config.Comment = strings.TrimSpace(config.Comment)
+	config.Owners = strings.TrimSpace(config.Owners)
+	config.Proxy = strings.TrimSpace(config.Proxy)
+	config.SNI = strings.TrimSpace(config.SNI)
+	config.ConnectBackAdress = strings.TrimSpace(config.ConnectBackAdress)
+	config.NTLMProxyCreds = strings.TrimSpace(config.NTLMProxyCreds)
+	config.VersionString = strings.TrimSpace(config.VersionString)
+	config.WorkingDirectory = strings.TrimSpace(config.WorkingDirectory)
+
+	if config.Name != "" && !validArtifactName.MatchString(config.Name) {
+		return errors.New("artifact name may only contain letters, numbers, '.', '_' and '-'")
+	}
+	if hasControlCharacters(config.Comment) {
+		return errors.New("artifact comment must be a single line without control characters")
+	}
+	if hasControlCharacters(config.Owners) {
+		return errors.New("artifact owners must not contain control characters")
+	}
+	if config.WorkingDirectory != "" && !validWorkingDirectory.MatchString(config.WorkingDirectory) {
+		return errors.New("working directory contains unsupported characters")
+	}
+	for field, value := range map[string]string{
+		"callback address": config.ConnectBackAdress,
+		"proxy":            config.Proxy,
+		"sni":              config.SNI,
+		"ntlm proxy creds": config.NTLMProxyCreds,
+		"version string":   config.VersionString,
+		"log level":        config.LogLevel,
+		"fingerprint":      config.Fingerprint,
+	} {
+		if value == "" {
+			continue
+		}
+		if !singleTokenBuildValue.MatchString(value) {
+			return fmt.Errorf("%s must not contain spaces or control characters", field)
+		}
+	}
+	return nil
+}
+
+func hasControlCharacters(value string) bool {
+	for _, r := range value {
+		if r < 32 || r == 127 {
+			return true
+		}
+	}
+	return false
 }

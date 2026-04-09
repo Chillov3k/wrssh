@@ -24,15 +24,23 @@ func (s *Server) websocketHandler() http.Handler {
 		defer ws.Close()
 
 		req := ws.Request()
-		userID, err := s.auth.ParseSessionCookie(req)
+		webSession, err := s.auth.ParseSessionCookie(req)
 		if err != nil {
 			_ = websocket.JSON.Send(ws, terminalMessage{Type: "error", Data: "authentication required"})
 			return
 		}
 
-		user, err := s.store.GetUserByID(userID)
+		user, err := s.store.GetUserByID(webSession.UserID)
 		if err != nil || !user.Enabled {
 			_ = websocket.JSON.Send(ws, terminalMessage{Type: "error", Data: "invalid session"})
+			return
+		}
+		if webSession.Version != user.SessionVersion {
+			_ = websocket.JSON.Send(ws, terminalMessage{Type: "error", Data: "invalid session"})
+			return
+		}
+		if user.MustChangePassword {
+			_ = websocket.JSON.Send(ws, terminalMessage{Type: "error", Data: "password change required"})
 			return
 		}
 

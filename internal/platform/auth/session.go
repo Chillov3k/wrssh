@@ -14,6 +14,11 @@ import (
 
 const CookieName = "rssh_web_session"
 
+type Session struct {
+	UserID  uint
+	Version uint64
+}
+
 type Manager struct {
 	secret []byte
 }
@@ -22,13 +27,13 @@ func New(secret string) *Manager {
 	return &Manager{secret: []byte(secret)}
 }
 
-func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, ttl time.Duration) error {
+func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, version uint64, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = 12 * time.Hour
 	}
 
 	expiresAt := time.Now().Add(ttl).Unix()
-	payload := fmt.Sprintf("%d:%d", userID, expiresAt)
+	payload := fmt.Sprintf("%d:%d:%d", userID, version, expiresAt)
 	signature := m.sign(payload)
 	value := base64.RawURLEncoding.EncodeToString([]byte(payload + ":" + signature))
 
@@ -55,41 +60,66 @@ func (m *Manager) ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func (m *Manager) ParseSessionCookie(r *http.Request) (uint, error) {
+func (m *Manager) ParseSessionCookie(r *http.Request) (Session, error) {
 	cookie, err := r.Cookie(CookieName)
 	if err != nil {
-		return 0, err
+		return Session{}, err
 	}
 
 	decoded, err := base64.RawURLEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		return 0, errors.New("decode cookie")
+		return Session{}, errors.New("decode cookie")
 	}
 
 	parts := strings.Split(string(decoded), ":")
-	if len(parts) != 3 {
-		return 0, errors.New("invalid cookie payload")
+	var payload string
+	var userIDPart string
+	var versionPart string
+	var expiresPart string
+	var signaturePart string
+
+	switch len(parts) {
+	case 3:
+		payload = strings.Join(parts[:2], ":")
+		userIDPart = parts[0]
+		versionPart = "0"
+		expiresPart = parts[1]
+		signaturePart = parts[2]
+	case 4:
+		payload = strings.Join(parts[:3], ":")
+		userIDPart = parts[0]
+		versionPart = parts[1]
+		expiresPart = parts[2]
+		signaturePart = parts[3]
+	default:
+		return Session{}, errors.New("invalid cookie payload")
 	}
 
-	payload := strings.Join(parts[:2], ":")
-	if !hmac.Equal([]byte(m.sign(payload)), []byte(parts[2])) {
-		return 0, errors.New("invalid cookie signature")
+	if !hmac.Equal([]byte(m.sign(payload)), []byte(signaturePart)) {
+		return Session{}, errors.New("invalid cookie signature")
 	}
 
-	expiresAt, err := strconv.ParseInt(parts[1], 10, 64)
+	expiresAt, err := strconv.ParseInt(expiresPart, 10, 64)
 	if err != nil {
-		return 0, errors.New("invalid cookie expiry")
+		return Session{}, errors.New("invalid cookie expiry")
 	}
 	if time.Now().Unix() > expiresAt {
-		return 0, errors.New("cookie expired")
+		return Session{}, errors.New("cookie expired")
 	}
 
-	userID, err := strconv.ParseUint(parts[0], 10, 64)
+	userID, err := strconv.ParseUint(userIDPart, 10, 64)
 	if err != nil {
-		return 0, errors.New("invalid cookie user")
+		return Session{}, errors.New("invalid cookie user")
+	}
+	version, err := strconv.ParseUint(versionPart, 10, 64)
+	if err != nil {
+		return Session{}, errors.New("invalid cookie version")
 	}
 
-	return uint(userID), nil
+	return Session{
+		UserID:  uint(userID),
+		Version: version,
+	}, nil
 }
 
 func (m *Manager) sign(payload string) string {
