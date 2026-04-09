@@ -25,6 +25,7 @@ type WebUser struct {
 	UpdatedAt          time.Time `json:"updatedAt"`
 	Username           string    `gorm:"uniqueIndex;size:128" json:"username"`
 	PasswordHash       string    `json:"-"`
+	SessionVersion     uint64    `gorm:"default:0" json:"-"`
 	MustChangePassword bool      `json:"mustChangePassword"`
 	Role               string    `gorm:"size:32" json:"role"`
 	RSSHUsername       string    `gorm:"column:r_ssh_username;size:128" json:"rsshUsername"`
@@ -156,6 +157,7 @@ func (s *Store) EnsureUser(username, password, role, rsshUsername string) error 
 	return s.db.Create(&WebUser{
 		Username:           username,
 		PasswordHash:       string(hash),
+		SessionVersion:     0,
 		MustChangePassword: false,
 		Role:               role,
 		RSSHUsername:       rsshUsername,
@@ -185,6 +187,31 @@ func (s *Store) GetUserByID(id uint) (WebUser, error) {
 	var user WebUser
 	err := s.db.First(&user, id).Error
 	return user, err
+}
+
+func (s *Store) RotateUserSessionVersionByID(id uint) (WebUser, error) {
+	if id == 0 {
+		return WebUser{}, errors.New("user id is required")
+	}
+	if err := s.db.Model(&WebUser{}).
+		Where("id = ?", id).
+		UpdateColumn("session_version", gorm.Expr("session_version + 1")).Error; err != nil {
+		return WebUser{}, err
+	}
+	return s.GetUserByID(id)
+}
+
+func (s *Store) RotateUserSessionVersion(username string) (WebUser, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return WebUser{}, errors.New("username is required")
+	}
+	if err := s.db.Model(&WebUser{}).
+		Where("username = ?", username).
+		UpdateColumn("session_version", gorm.Expr("session_version + 1")).Error; err != nil {
+		return WebUser{}, err
+	}
+	return s.GetUserByUsername(username)
 }
 
 func (s *Store) UpsertHostFromSnapshot(snapshot users.ClientSnapshot, seenAt time.Time) (HostRecord, error) {
@@ -513,6 +540,32 @@ func (s *Store) FinishSession(sessionUID, status, errText string, endedAt time.T
 		"error_text": errText,
 	}
 	return s.db.Model(&SessionRecord{}).Where("session_uid = ?", sessionUID).Updates(updates).Error
+}
+
+func (s *Store) CountCompletedSessionsForHostsSince(hostStableIDs []string, since time.Time) (int64, error) {
+	filtered := make([]string, 0, len(hostStableIDs))
+	seen := make(map[string]struct{}, len(hostStableIDs))
+	for _, stableID := range hostStableIDs {
+		stableID = strings.TrimSpace(stableID)
+		if stableID == "" {
+			continue
+		}
+		if _, ok := seen[stableID]; ok {
+			continue
+		}
+		seen[stableID] = struct{}{}
+		filtered = append(filtered, stableID)
+	}
+	if len(filtered) == 0 {
+		return 0, nil
+	}
+
+	var count int64
+	err := s.db.Model(&SessionRecord{}).
+		Where("ended_at >= ?", since).
+		Where("host_stable_id IN ?", filtered).
+		Count(&count).Error
+	return count, err
 }
 
 func (s *Store) UpsertAdminConsoleSession(event observers.AdminSessionState) error {

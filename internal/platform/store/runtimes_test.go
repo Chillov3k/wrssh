@@ -220,7 +220,7 @@ func TestUpdateProjectRuntimeStatus(t *testing.T) {
 	now := time.Now()
 	status := RuntimeStatusProvisioning
 	errText := "waiting for container health"
-	agentBaseURL := "http://wrssh-runtime-p1-alpha:8081"
+	agentBaseURL := "http://host.docker.internal:2400"
 	updated, err := store.UpdateProjectRuntimeStatus("alpha", ProjectRuntimeStatusPatch{
 		Status:            &status,
 		AgentBaseURL:      &agentBaseURL,

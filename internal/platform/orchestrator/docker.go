@@ -48,6 +48,10 @@ type containerInspectResponse struct {
 	} `json:"State"`
 	NetworkSettings struct {
 		Networks map[string]struct{} `json:"Networks"`
+		Ports    map[string][]struct {
+			HostIP   string `json:"HostIp"`
+			HostPort string `json:"HostPort"`
+		} `json:"Ports"`
 	} `json:"NetworkSettings"`
 }
 

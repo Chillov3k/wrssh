@@ -31,6 +31,7 @@ type Server struct {
 	auth        *auth.Manager
 	rsshService *rssh.Service
 	runtimes    *orchestrator.Manager
+	loginGuard  *loginThrottle
 }
 
 type contextKey string
@@ -44,6 +45,7 @@ func NewServer(cfg platformconfig.Config, store *store.Store, authManager *auth.
 		auth:        authManager,
 		rsshService: rsshService,
 		runtimes:    runtimeManager,
+		loginGuard:  newLoginThrottle(),
 	}
 }
 
@@ -91,14 +93,18 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) requireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, err := s.auth.ParseSessionCookie(r)
+		session, err := s.auth.ParseSessionCookie(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
 
-		user, err := s.store.GetUserByID(userID)
+		user, err := s.store.GetUserByID(session.UserID)
 		if err != nil || !user.Enabled {
+			writeError(w, http.StatusUnauthorized, "invalid session")
+			return
+		}
+		if session.Version != user.SessionVersion {
 			writeError(w, http.StatusUnauthorized, "invalid session")
 			return
 		}
@@ -121,17 +127,31 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	loginKey := loginThrottleKey(r, credentials.Username)
+	now := time.Now()
+	if retryAfter, blocked := s.loginGuard.retryAfter(loginKey, now); blocked {
+		writeRetryAfter(w, retryAfter)
+		writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
+		return
+	}
+
 	user, err := s.store.Authenticate(credentials.Username, credentials.Password)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidCredentials) {
+			if retryAfter := s.loginGuard.registerFailure(loginKey, now); retryAfter > 0 {
+				writeRetryAfter(w, retryAfter)
+				writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "invalid username or password")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.loginGuard.reset(loginKey)
 
-	if err := s.auth.SetSessionCookie(w, user.ID, 12*time.Hour); err != nil {
+	if err := s.auth.SetSessionCookie(w, user.ID, user.SessionVersion, 12*time.Hour); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -139,7 +159,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, userResponse(user))
 }
 
-func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if session, err := s.auth.ParseSessionCookie(r); err == nil {
+		_, _ = s.store.RotateUserSessionVersionByID(session.UserID)
+	}
 	s.auth.ClearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -219,6 +242,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	summary.AvailableBuilds = int64(len(artifacts))
 	summary.ProjectsCount = int64(len(projects))
 	summary.TaggedHostsCount = tagged
+	if selectedProject != "" || user.Role != "admin" {
+		hostStableIDs := make([]string, 0, len(filteredHosts))
+		for _, host := range filteredHosts {
+			hostStableIDs = append(hostStableIDs, host.StableID)
+		}
+		completedToday, err := s.store.CountCompletedSessionsForHostsSince(hostStableIDs, time.Now().Truncate(24*time.Hour))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		summary.CompletedToday = completedToday
+		summary.ConfiguredHooks = 0
+	}
 
 	writeJSON(w, http.StatusOK, summary)
 }

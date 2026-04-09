@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"embed"
 	"io"
+	"strconv"
+	"strings"
 	"text/template"
 )
 
@@ -20,6 +22,21 @@ type Args struct {
 	WorkingDirectory string
 }
 
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func pythonQuote(value string) string {
+	return strconv.Quote(value)
+}
+
+func powerShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func MakeTemplate(attributes Args, extension string) ([]byte, error) {
 
 	file, err := shellTemplates.Open("templates/" + extension)
@@ -32,7 +49,11 @@ func MakeTemplate(attributes Args, extension string) ([]byte, error) {
 		return nil, err
 	}
 
-	template, err := template.New("shell").Parse(string(t))
+	template, err := template.New("shell").Funcs(template.FuncMap{
+		"shq": shellQuote,
+		"pyq": pythonQuote,
+		"psq": powerShellQuote,
+	}).Parse(string(t))
 	if err != nil {
 		return nil, err
 	}
