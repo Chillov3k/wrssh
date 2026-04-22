@@ -14,6 +14,7 @@ import {
   markSynced,
   platformLabel,
   resolveConnection,
+  websocketURL,
   viewHref,
   withProjectQuery
 } from "./shared.js";
@@ -316,8 +317,9 @@ function openTerminal(connectionId, reconnect) {
   terminalView.write(`[connecting to ${connection.connectionId}]\n`);
   elements.terminalViewport.focus();
 
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${protocol}//${window.location.host}/ws/terminal/${encodeURIComponent(pageState.host.stableId)}?cols=${size.cols}&rows=${size.rows}&connectionId=${encodeURIComponent(connection.connectionId)}`;
+  const url = websocketURL(
+    `/ws/terminal/${encodeURIComponent(pageState.host.stableId)}?cols=${size.cols}&rows=${size.rows}&connectionId=${encodeURIComponent(connection.connectionId)}`
+  );
   const socket = new WebSocket(url);
 
   pageState.terminal.socket = socket;

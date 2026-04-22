@@ -89,6 +89,30 @@ func (m *Manager) KillConnection(ctx context.Context, projectName, connectionID 
 	return m.runtimeJSON(ctx, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "kill"), map[string]any{}, nil)
 }
 
+func (m *Manager) ExecuteCommand(ctx context.Context, projectName, connectionID, command string) (rssh.CommandExecution, error) {
+	response := struct {
+		Output   string `json:"output"`
+		TimedOut bool   `json:"timedOut"`
+		Error    string `json:"error"`
+	}{}
+	err := m.runtimeJSON(ctx, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "exec"), map[string]any{
+		"command": command,
+	}, &response)
+	if err != nil {
+		return rssh.CommandExecution{}, err
+	}
+	if strings.TrimSpace(response.Error) != "" {
+		return rssh.CommandExecution{
+			Output:   response.Output,
+			TimedOut: response.TimedOut,
+		}, errors.New(strings.TrimSpace(response.Error))
+	}
+	return rssh.CommandExecution{
+		Output:   response.Output,
+		TimedOut: response.TimedOut,
+	}, nil
+}
+
 func (m *Manager) DialTerminal(ctx context.Context, projectName, stableID, connectionID string, cols, rows uint32, shell string) (*websocket.Conn, error) {
 	if m == nil {
 		return nil, fmt.Errorf("project runtime manager is disabled")

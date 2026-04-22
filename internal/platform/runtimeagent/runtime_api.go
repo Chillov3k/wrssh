@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/NHAS/reverse_ssh/internal/server/users"
 	"github.com/NHAS/reverse_ssh/internal/server/webserver"
@@ -88,6 +89,33 @@ func (s *Server) handleKillConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleExecuteConnectionCommand(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
+	if connectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "connection id is required"})
+		return
+	}
+
+	request := struct {
+		Command string `json:"command"`
+	}{}
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
+		return
+	}
+
+	result, err := s.service.ExecuteCommandOnConnection(connectionID, request.Command, 60*time.Second)
+	response := map[string]any{
+		"output":   result.Output,
+		"timedOut": result.TimedOut,
+	}
+	if err != nil {
+		response["error"] = err.Error()
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func decodeJSON(r *http.Request, out any) error {

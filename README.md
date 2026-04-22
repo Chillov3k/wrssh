@@ -123,6 +123,11 @@ WEB_RUNTIME_BIND_IP=0.0.0.0
 ```bash
 docker compose up -d --build
 ```
+## Get web path of login page
+
+```bash
+docker exec wrssh-frontend-1 cat /data/.web_entry_path
+```
 
 What happens:
 
