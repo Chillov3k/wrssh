@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RSSH Admin Hosts</title>
-  <script src="/theme-init.js"></script>
-  <link rel="stylesheet" href="/styles.css">
+  <script src="theme-init.js"></script>
+  <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="auth-pending">
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-block">
@@ -19,15 +19,15 @@
         <p class="eyebrow">Project</p>
         <strong id="sidebarProjectName">-</strong>
         <div id="sidebarProjectTags" class="tag-list"></div>
-        <a id="changeProjectLink" class="ghost-button action-link" href="/projects">Change Project</a>
+        <a id="changeProjectLink" class="ghost-button action-link" href="projects">Change Project</a>
       </div>
 
       <nav class="nav-list">
-        <a class="nav-item" href="/overview">Overview</a>
-        <a class="nav-item active" href="/hosts">Hosts</a>
-        <a class="nav-item" href="/builds">Builds</a>
-        <a class="nav-item" href="/downloads">Downloads</a>
-        <a class="nav-item hidden" data-admin-only href="/users">Manage Users</a>
+        <a class="nav-item" href="overview">Overview</a>
+        <a class="nav-item active" href="hosts">Hosts</a>
+        <a class="nav-item" href="builds">Builds</a>
+        <a class="nav-item" href="downloads">Downloads</a>
+        <a class="nav-item hidden" data-admin-only href="users">Manage Users</a>
       </nav>
 
       <div class="user-card">
@@ -56,7 +56,30 @@
               <p class="eyebrow">Clients</p>
               <h3>Managed Hosts</h3>
             </div>
-            <input id="hostSearch" class="search-input search-input-wide" type="search" placeholder="Filter by connection id, hostname, tag or IP">
+            <div class="hosts-toolbar-controls">
+              <div id="osFilter" class="segmented-filter" aria-label="Filter hosts by operating system">
+                <button class="segmented-filter-button is-active" type="button" data-os-filter="all">All</button>
+                <button class="segmented-filter-button" type="button" data-os-filter="linux">Linux</button>
+                <button class="segmented-filter-button" type="button" data-os-filter="windows">Windows</button>
+                <button class="segmented-filter-button" type="button" data-os-filter="darwin">macOS</button>
+              </div>
+              <input id="hostSearch" class="search-input search-input-wide" type="search" placeholder="Filter by connection id, hostname, tag or IP">
+            </div>
+          </div>
+          <div class="bulk-exec-panel">
+            <div class="bulk-exec-form">
+              <label class="field-stack bulk-command-field">
+                <span>Run Command On Selected Hosts</span>
+                <input id="bulkCommandInput" class="search-input" type="text" placeholder="ip a">
+              </label>
+              <div class="bulk-exec-actions">
+                <span id="bulkSelectionSummary" class="chip">0 selected</span>
+                <button id="selectVisibleHostsButton" class="ghost-button" type="button">Select Visible</button>
+                <button id="clearSelectedHostsButton" class="ghost-button" type="button">Clear</button>
+                <button id="runSelectedHostsButton" class="action-button" type="button">Run On Selected</button>
+              </div>
+            </div>
+            <p id="bulkExecOutput" class="error-text bulk-exec-output"></p>
           </div>
           <div id="hostTable" class="table-shell"></div>
         </div>
@@ -64,7 +87,7 @@
     </main>
   </div>
 
-  <div id="loginOverlay" class="overlay visible">
+  <div id="loginOverlay" class="overlay">
     <div class="overlay-card">
       <p class="eyebrow">Authenticate</p>
       <h2>Sign In To RSSH Admin</h2>
@@ -83,6 +106,6 @@
     </div>
   </div>
 
-  <script type="module" src="/hosts.js"></script>
+  <script type="module" src="hosts.js"></script>
 </body>
 </html>

@@ -1,12 +1,15 @@
 package rssh
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/NHAS/reverse_ssh/internal"
 	"github.com/NHAS/reverse_ssh/internal/server/data"
@@ -46,6 +49,11 @@ type Artifact struct {
 
 type InteractiveSession struct {
 	channel ssh.Channel
+}
+
+type CommandExecution struct {
+	Output   string `json:"output"`
+	TimedOut bool   `json:"timedOut,omitempty"`
 }
 
 func NewService() *Service {
@@ -194,6 +202,102 @@ func (s *Service) openInteractiveSession(client *ssh.ServerConn, cols, rows uint
 	go ssh.DiscardRequests(requests)
 
 	return &InteractiveSession{channel: channel}, nil
+}
+
+func (s *Service) ExecuteCommandOnConnection(connectionID, command string, timeout time.Duration) (CommandExecution, error) {
+	client, ok := users.GetClientConnection(connectionID)
+	if !ok {
+		return CommandExecution{}, fmt.Errorf("host is not currently connected")
+	}
+
+	return s.executeCommand(client, command, timeout)
+}
+
+func (s *Service) executeCommand(client *ssh.ServerConn, command string, timeout time.Duration) (CommandExecution, error) {
+	if client == nil {
+		return CommandExecution{}, fmt.Errorf("host is not currently connected")
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return CommandExecution{}, fmt.Errorf("command is required")
+	}
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	channel, requests, err := client.OpenChannel("session", nil)
+	if err != nil {
+		return CommandExecution{}, err
+	}
+	defer channel.Close()
+
+	go ssh.DiscardRequests(requests)
+
+	okReply, err := channel.SendRequest("exec", true, ssh.Marshal(internal.ShellStruct{Cmd: command}))
+	if err != nil {
+		return CommandExecution{}, err
+	}
+	if !okReply {
+		return CommandExecution{}, fmt.Errorf("client refused exec request")
+	}
+
+	var output bytes.Buffer
+	var stderr bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		var (
+			stdoutErr error
+			stderrErr error
+			wg        sync.WaitGroup
+		)
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, stdoutErr = io.Copy(&output, channel)
+			if stdoutErr == io.EOF {
+				stdoutErr = nil
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_, stderrErr = io.Copy(&stderr, channel.Stderr())
+			if stderrErr == io.EOF {
+				stderrErr = nil
+			}
+		}()
+		wg.Wait()
+
+		switch {
+		case stdoutErr != nil:
+			done <- stdoutErr
+		case stderrErr != nil:
+			done <- stderrErr
+		default:
+			if stderr.Len() > 0 {
+				if output.Len() > 0 && !bytes.HasSuffix(output.Bytes(), []byte("\n")) {
+					output.WriteByte('\n')
+				}
+				output.Write(stderr.Bytes())
+			}
+			done <- nil
+		}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case copyErr := <-done:
+		return CommandExecution{Output: output.String()}, copyErr
+	case <-timer.C:
+		_ = channel.Close()
+		return CommandExecution{
+			Output:   output.String(),
+			TimedOut: true,
+		}, fmt.Errorf("command timed out after %s", timeout.Round(time.Second))
+	}
 }
 
 func clientConnectionByStableID(stableID string) (*ssh.ServerConn, bool) {

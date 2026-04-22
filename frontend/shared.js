@@ -29,8 +29,12 @@ const PROJECT_SCOPED_VIEWS = new Set([
 const THEME_STORAGE_KEY = "wrssh.theme";
 const LIGHT_THEME = "light";
 const DARK_THEME = "dark";
+const KNOWN_VIEW_PATHS = Object.values(VIEW_PATHS).sort((left, right) => right.length - left.length);
+const APP_BASE_PATH = detectBasePath();
 
 export async function initPage({ title, load, requireProject = false }) {
+  setAuthPending(true);
+
   const shell = {
     loginOverlay: byId("loginOverlay"),
     loginForm: byId("loginForm"),
@@ -131,7 +135,7 @@ function bindAuth(ctx, load, requireProject) {
 
   if (shell.editProfileButton) {
     shell.editProfileButton.addEventListener("click", () => {
-      if (window.location.pathname === VIEW_PATHS.profile) {
+      if (currentViewPath() === VIEW_PATHS.profile) {
         return;
       }
       window.location.href = viewHref("profile");
@@ -177,11 +181,11 @@ function initThemeUI() {
     themeToggle.setAttribute("role", "switch");
     themeToggle.setAttribute("aria-label", "Toggle theme");
     themeToggle.innerHTML = `
-      <img class="theme-toggle-icon theme-toggle-icon-light" src="/1.png" alt="" aria-hidden="true">
+      <img class="theme-toggle-icon theme-toggle-icon-light" src="${appPath("/1.png")}" alt="" aria-hidden="true">
       <span class="theme-toggle-switch" aria-hidden="true">
         <span class="theme-toggle-thumb"></span>
       </span>
-      <img class="theme-toggle-icon theme-toggle-icon-dark" src="/2.png" alt="" aria-hidden="true">
+      <img class="theme-toggle-icon theme-toggle-icon-dark" src="${appPath("/2.png")}" alt="" aria-hidden="true">
     `;
     head.appendChild(themeToggle);
   }
@@ -235,7 +239,7 @@ function renderUser(ctx) {
 
   ctx.shell.currentUserName.textContent = ctx.user.username;
   if (ctx.shell.editProfileButton) {
-    const onProfilePage = window.location.pathname === VIEW_PATHS.profile;
+    const onProfilePage = currentViewPath() === VIEW_PATHS.profile;
     ctx.shell.editProfileButton.disabled = onProfilePage;
     ctx.shell.editProfileButton.title = onProfilePage ? "Already on profile page" : "";
   }
@@ -284,7 +288,7 @@ function redirectToProfileIfRequired(ctx) {
   if (!ctx?.user?.mustChangePassword) {
     return false;
   }
-  if (window.location.pathname === VIEW_PATHS.profile) {
+  if (currentViewPath() === VIEW_PATHS.profile) {
     return false;
   }
   window.location.href = viewHref("profile");
@@ -330,11 +334,17 @@ export function markSynced(ctx, extra = "") {
 }
 
 export function showLogin(ctx) {
+  setAuthPending(false);
   ctx.shell.loginOverlay?.classList.add("visible");
 }
 
 export function hideLogin(ctx) {
+  setAuthPending(false);
   ctx.shell.loginOverlay?.classList.remove("visible");
+}
+
+function setAuthPending(active) {
+  document.body?.classList.toggle("auth-pending", Boolean(active));
 }
 
 export async function api(path, options = {}) {
@@ -347,7 +357,8 @@ export async function api(path, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(method === "GET" ? withCacheBust(path) : path, {
+  const targetPath = appPath(path);
+  const response = await fetch(method === "GET" ? withCacheBust(targetPath) : targetPath, {
     ...options,
     cache: "no-store",
     credentials: "include",
@@ -373,6 +384,11 @@ export async function api(path, options = {}) {
   }
 
   return payload;
+}
+
+export function websocketURL(path) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}${appPath(path)}`;
 }
 
 export function withCacheBust(path) {
@@ -487,12 +503,11 @@ export function currentProjectName() {
 }
 
 export function withProjectQuery(path, project = currentProjectName()) {
+  const url = new URL(appPath(path), window.location.origin);
   const selectedProject = String(project || "").trim();
   if (!selectedProject) {
-    return path;
+    return `${url.pathname}${url.search}`;
   }
-
-  const url = new URL(path, window.location.origin);
   url.searchParams.set("project", selectedProject);
   return `${url.pathname}${url.search}`;
 }
@@ -513,7 +528,8 @@ export function viewHref(view, project = currentProjectName(), extraParams = {})
   });
 
   const query = params.toString();
-  return query ? `${path}?${query}` : path;
+  const resolvedPath = query ? `${path}?${query}` : path;
+  return appPath(resolvedPath);
 }
 
 export function hostMetrics(hosts) {
@@ -774,7 +790,7 @@ export function renderArtifactLink(label, url) {
 function syncNavigation(project) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     const href = item.getAttribute("href") || "";
-    const pathname = href.split("?")[0];
+    const pathname = stripBasePath(new URL(href, window.location.href).pathname);
     const route = Object.entries(VIEW_PATHS).find(([, path]) => path === pathname)?.[0];
     if (!route) {
       return;
@@ -793,4 +809,79 @@ function applyCapabilities(user) {
   document.querySelectorAll("[data-create-project-only]").forEach((node) => {
     node.classList.toggle("hidden", !canCreate);
   });
+}
+
+function detectBasePath() {
+  const pathname = normalizePath(window.location.pathname);
+  if (pathname === "/") {
+    return "";
+  }
+
+  for (const viewPath of KNOWN_VIEW_PATHS) {
+    if (pathname === viewPath) {
+      return "";
+    }
+    if (pathname.endsWith(viewPath)) {
+      const prefix = pathname.slice(0, pathname.length - viewPath.length);
+      if (prefix === "" || prefix.startsWith("/")) {
+        return normalizeBasePath(prefix);
+      }
+    }
+  }
+
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 1) {
+    return `/${segments[0]}`;
+  }
+
+  return "";
+}
+
+function normalizePath(pathname) {
+  const value = String(pathname || "").trim();
+  if (value === "" || value === "/") {
+    return "/";
+  }
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function normalizeBasePath(pathname) {
+  const value = normalizePath(pathname);
+  return value === "/" ? "" : value;
+}
+
+function stripBasePath(pathname) {
+  const normalized = normalizePath(pathname);
+  if (!APP_BASE_PATH) {
+    return normalized;
+  }
+  if (normalized === APP_BASE_PATH) {
+    return "/";
+  }
+  if (normalized.startsWith(`${APP_BASE_PATH}/`)) {
+    const stripped = normalized.slice(APP_BASE_PATH.length);
+    return stripped === "" ? "/" : stripped;
+  }
+  return normalized;
+}
+
+function currentViewPath() {
+  return stripBasePath(window.location.pathname);
+}
+
+export function appPath(path) {
+  let value = String(path || "").trim();
+  if (value === "") {
+    value = "/";
+  }
+  if (!value.startsWith("/")) {
+    value = `/${value}`;
+  }
+  if (!APP_BASE_PATH) {
+    return value;
+  }
+  if (value === APP_BASE_PATH || value.startsWith(`${APP_BASE_PATH}/`)) {
+    return value;
+  }
+  return `${APP_BASE_PATH}${value}`;
 }

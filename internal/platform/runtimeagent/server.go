@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /internal/artifacts/{urlPath}", s.handleArtifact)
 	mux.HandleFunc("DELETE /internal/artifacts/{urlPath}", s.handleDeleteArtifact)
 	mux.HandleFunc("POST /internal/connections/{connectionID}/kill", s.handleKillConnection)
+	mux.HandleFunc("POST /internal/connections/{connectionID}/exec", s.handleExecuteConnectionCommand)
 	mux.Handle("GET /internal/ws/terminal/{stableID}", websocket.Handler(s.handleTerminalWebsocket))
 	return s.requireBearer(mux)
 }

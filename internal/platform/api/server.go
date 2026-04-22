@@ -72,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/system/options", s.requireUser(http.HandlerFunc(s.handleSystemOptions)))
 	mux.Handle("GET /api/hosts", s.requireUser(http.HandlerFunc(s.handleHosts)))
 	mux.Handle("GET /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleHost)))
+	mux.Handle("POST /api/hosts/exec", s.requireUser(http.HandlerFunc(s.handleExecuteHosts)))
 	mux.Handle("PATCH /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleUpdateHost)))
 	mux.Handle("DELETE /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleDeleteHost)))
 	mux.Handle("GET /api/artifacts/{urlPath}", s.requireUser(http.HandlerFunc(s.handleArtifact)))

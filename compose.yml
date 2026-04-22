@@ -55,6 +55,8 @@ services:
     restart: unless-stopped
     depends_on:
       - platform
+    volumes:
+      - rssh_data:/data
     ports:
       - "${WEB_UI_PORT}:80"
 

@@ -175,7 +175,7 @@ func preferredHost(externalAddress string, options []InterfaceOption) string {
 }
 
 func supportedGOOS() []string {
-	return []string{"linux", "windows"}
+	return []string{"linux", "windows", "darwin"}
 }
 
 func supportedGOARCH() []string {
