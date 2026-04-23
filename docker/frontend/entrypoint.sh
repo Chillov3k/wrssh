@@ -22,6 +22,9 @@ HTTP_TEMPLATE="/etc/nginx/templates/default.http.conf.template"
 HTTPS_TEMPLATE="/etc/nginx/templates/default.https.conf.template"
 ACTIVE_TEMPLATE="/etc/nginx/templates/default.conf.template"
 
+rm -f /etc/nginx/conf.d/default.http.conf /etc/nginx/conf.d/default.https.conf
+rm -f "$ACTIVE_TEMPLATE"
+
 if [ -n "${WEB_DOMAIN:-}" ]; then
   if [ "${WEB_UI_PORT:-}" = "80" ]; then
     echo "frontend: WEB_UI_PORT cannot be 80 when WEB_DOMAIN is set; port 80 is reserved for HTTP -> HTTPS redirect" >&2
@@ -41,8 +44,10 @@ if [ -n "${WEB_DOMAIN:-}" ]; then
   fi
 
   cp "$HTTPS_TEMPLATE" "$ACTIVE_TEMPLATE"
+  rm -f "$HTTP_TEMPLATE"
 else
   cp "$HTTP_TEMPLATE" "$ACTIVE_TEMPLATE"
+  rm -f "$HTTPS_TEMPLATE"
 fi
 
 WEB_HTTPS_PORT_SUFFIX=":${WEB_UI_PORT}"
