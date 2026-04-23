@@ -53,12 +53,16 @@ services:
       context: .
       dockerfile: docker/frontend/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     depends_on:
       - platform
     volumes:
       - rssh_data:/data
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     ports:
-      - "${WEB_UI_PORT}:80"
+      - "80:80"
+      - "${WEB_UI_PORT}:443"
 
   runtime-image:
     image: ${WEB_RUNTIME_IMAGE:-wrssh-runtime:local}

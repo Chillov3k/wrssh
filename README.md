@@ -47,7 +47,10 @@ cp .env.example .env
 Required fields:
 
 - `WEB_UI_PORT`  
-  Web UI port on the host.
+  Web UI port on the host. In plain HTTP mode this is the main UI port. If `WEB_DOMAIN` is set, this becomes the external HTTPS port for the UI.
+
+- `WEB_DOMAIN`  
+  Optional domain name for HTTPS on the web UI. When set, `frontend` enables TLS using Let's Encrypt files from `/etc/letsencrypt/live/<WEB_DOMAIN>/`.
 
 - `CONTROL_PLANE_SSH_PORT`  
   Shared control-plane SSH port. Mainly kept for compatibility and admin scenarios.
@@ -97,6 +100,7 @@ Example:
 
 ```dotenv
 WEB_UI_PORT=8080
+WEB_DOMAIN=
 CONTROL_PLANE_SSH_PORT=2222
 RSSH_PORT=2222
 RSSH_EXTERNAL_ADDRESS=192.168.1.1:2222
@@ -137,6 +141,63 @@ What happens:
 - the web UI becomes available at `http://<host>:<WEB_UI_PORT>`.
 
 Then log in with `WEB_USER` / `WEB_ADMIN_PASSWORD`.
+
+## HTTPS For The Web UI
+
+If you want HTTPS only for the web UI, do not change `platform` or the project runtime ports. TLS is terminated by `frontend`.
+
+1. Issue the certificate:
+
+```bash
+docker compose stop frontend
+sudo certbot certonly --register-unsafely-without-email --standalone -d panel.example.com -n --agree-tos
+docker compose start frontend
+```
+
+2. Set the domain in `.env`:
+
+```dotenv
+WEB_DOMAIN=panel.example.com
+```
+
+3. Choose the external HTTPS port with `WEB_UI_PORT`.
+
+Examples:
+
+- standard HTTPS:
+
+```dotenv
+WEB_UI_PORT=443
+WEB_DOMAIN=panel.example.com
+```
+
+- HTTPS on port `8080`:
+
+```dotenv
+WEB_UI_PORT=8080
+WEB_DOMAIN=panel.example.com
+```
+
+In the second case the UI will be available at:
+
+```text
+https://panel.example.com:8080/<secret>/projects
+```
+
+What happens in TLS mode:
+
+- container port `80` is used for HTTP -> HTTPS redirect;
+- container port `443` serves the actual UI over TLS;
+- the certificate is read from:
+  - `/etc/letsencrypt/live/<WEB_DOMAIN>/fullchain.pem`
+  - `/etc/letsencrypt/live/<WEB_DOMAIN>/privkey.pem`
+
+If you use a custom certificate location, set:
+
+```dotenv
+WEB_TLS_CERT_PATH=/path/to/fullchain.pem
+WEB_TLS_KEY_PATH=/path/to/privkey.pem
+```
 
 ## How To Stop
 
@@ -182,4 +243,3 @@ This cleanup removes:
 
 - `/profile`  
   Change your own password and SSH keys.
-

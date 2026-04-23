@@ -27,7 +27,7 @@ func New(secret string) *Manager {
 	return &Manager{secret: []byte(secret)}
 }
 
-func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, version uint64, ttl time.Duration) error {
+func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, version uint64, ttl time.Duration, secure bool) error {
 	if ttl <= 0 {
 		ttl = 12 * time.Hour
 	}
@@ -42,18 +42,20 @@ func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, version u
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(expiresAt, 0),
 	})
 	return nil
 }
 
-func (m *Manager) ClearSessionCookie(w http.ResponseWriter) {
+func (m *Manager) ClearSessionCookie(w http.ResponseWriter, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,

@@ -1,6 +1,6 @@
 FROM nginx:alpine
 
-COPY docker/frontend/default.conf.template /etc/nginx/templates/default.conf.template
+COPY docker/frontend/*.template /etc/nginx/templates/
 COPY docker/frontend/entrypoint.sh /app/entrypoint.sh
 COPY frontend/*.html /usr/share/nginx/html/
 COPY frontend/*.js /usr/share/nginx/html/
