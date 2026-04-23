@@ -13,7 +13,7 @@ func TestSessionCookieRoundTrip(t *testing.T) {
 	manager := New("test-secret")
 	recorder := httptest.NewRecorder()
 
-	if err := manager.SetSessionCookie(recorder, 42, 7, time.Hour); err != nil {
+	if err := manager.SetSessionCookie(recorder, 42, 7, time.Hour, false); err != nil {
 		t.Fatalf("set cookie: %v", err)
 	}
 

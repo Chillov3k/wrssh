@@ -1,5 +1,6 @@
 server {
     listen 80;
+    listen 443;
     server_name _;
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $platform_upstream platform:8080;

@@ -152,7 +152,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginGuard.reset(loginKey)
 
-	if err := s.auth.SetSessionCookie(w, user.ID, user.SessionVersion, 12*time.Hour); err != nil {
+	if err := s.auth.SetSessionCookie(w, user.ID, user.SessionVersion, 12*time.Hour, requestIsSecure(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if session, err := s.auth.ParseSessionCookie(r); err == nil {
 		_, _ = s.store.RotateUserSessionVersionByID(session.UserID)
 	}
-	s.auth.ClearSessionCookie(w)
+	s.auth.ClearSessionCookie(w, requestIsSecure(r))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -802,6 +802,19 @@ func currentUser(r *http.Request) store.WebUser {
 		}
 	}
 	return store.WebUser{}
+}
+
+func requestIsSecure(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); strings.EqualFold(forwarded, "https") {
+		return true
+	}
+	return false
 }
 
 type userResponsePayload struct {

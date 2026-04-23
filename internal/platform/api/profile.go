@@ -100,7 +100,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updated = rotated
-		if err := s.auth.SetSessionCookie(w, updated.ID, updated.SessionVersion, 12*time.Hour); err != nil {
+		if err := s.auth.SetSessionCookie(w, updated.ID, updated.SessionVersion, 12*time.Hour, requestIsSecure(r)); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
