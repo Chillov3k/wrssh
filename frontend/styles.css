@@ -1714,25 +1714,26 @@ pre {
 .filesystem-tree {
   min-height: 180px;
   overflow: auto;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.9));
+  font-size: 0.9rem;
 }
 
 .fs-node {
-  min-width: 720px;
+  min-width: 640px;
 }
 
 .fs-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 6px 8px 6px calc(8px + (var(--fs-depth, 0) * 24px));
-  border-radius: 12px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 3px 6px 3px calc(6px + (var(--fs-depth, 0) * 18px));
+  border-radius: 9px;
   border: 1px solid transparent;
 }
 
@@ -1751,18 +1752,20 @@ pre {
 }
 
 .fs-expander {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   border: 1px solid var(--line);
   color: var(--accent);
   cursor: pointer;
+  font-size: 0.78rem;
   font-weight: 900;
+  line-height: 1;
 }
 
 .fs-expander-spacer {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   display: block;
   pointer-events: none;
 }
@@ -1770,9 +1773,9 @@ pre {
 .fs-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 26px minmax(160px, auto) minmax(0, 1fr);
+  grid-template-columns: 20px minmax(130px, auto) minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   text-align: left;
   cursor: pointer;
 }
@@ -1782,8 +1785,8 @@ pre {
 }
 
 .fs-icon {
-  width: 24px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1795,38 +1798,60 @@ pre {
 
 .fs-icon.folder::before {
   content: "";
-  width: 20px;
-  height: 14px;
-  border-radius: 4px;
-  border: 2px solid currentColor;
+  width: 16px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
   background: rgba(11, 99, 215, 0.08);
 }
 
 .fs-icon.folder::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 4px;
-  width: 9px;
-  height: 5px;
-  border-radius: 3px 3px 0 0;
+  top: 3px;
+  left: 3px;
+  width: 8px;
+  height: 4px;
+  border-radius: 2px 2px 0 0;
   background: currentColor;
 }
 
 .fs-icon.file::before {
   content: "";
-  width: 16px;
-  height: 20px;
-  border-radius: 4px;
-  border: 2px solid currentColor;
+  width: 13px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
   background: rgba(20, 32, 51, 0.04);
+}
+
+.fs-icon.drives::before {
+  content: "";
+  width: 16px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
+  background: rgba(11, 99, 215, 0.08);
+  box-shadow: inset 0 -4px 0 rgba(11, 99, 215, 0.12);
+}
+
+.fs-icon.drives::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 4px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .fs-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 800;
+  font-size: 0.9rem;
+  font-weight: 750;
 }
 
 .fs-meta {
@@ -1835,28 +1860,28 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
 }
 
 .fs-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 5px;
 }
 
 .fs-small-button {
-  min-height: 34px;
-  padding: 8px 11px;
-  border-radius: 10px;
-  font-size: 0.82rem;
+  min-height: 26px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  font-size: 0.72rem;
 }
 
 .fs-state,
 .fs-empty {
-  margin: 4px 8px 4px calc(50px + (var(--fs-depth, 0) * 24px));
-  padding: 10px 12px;
-  border-radius: 12px;
+  margin: 3px 6px 3px calc(38px + (var(--fs-depth, 0) * 18px));
+  padding: 6px 8px;
+  border-radius: 9px;
   color: var(--muted);
   background: rgba(20, 32, 51, 0.04);
 }
@@ -2277,7 +2302,8 @@ html[data-theme="dark"] .fs-icon {
 }
 
 html[data-theme="dark"] .fs-icon.folder::before,
-html[data-theme="dark"] .fs-icon.file::before {
+html[data-theme="dark"] .fs-icon.file::before,
+html[data-theme="dark"] .fs-icon.drives::before {
   background: rgba(107, 174, 255, 0.08);
 }
 
