@@ -70,18 +70,13 @@
                 <h3 id="detailHostname">-</h3>
                 <p id="detailSubline" class="muted">-</p>
               </div>
-              <span id="detailStatusBadge" class="status-pill">Offline</span>
+              <div class="detail-head-actions">
+                <span id="detailStatusBadge" class="status-pill">Offline</span>
+                <button id="openFilesystemButton" class="ghost-button" type="button">Open file system</button>
+              </div>
             </div>
 
             <div class="detail-grid detail-grid-wide">
-              <div class="detail-field">
-                <span>Connection ID</span>
-                <strong id="detailHostId">-</strong>
-              </div>
-              <div class="detail-field">
-                <span>Stable ID</span>
-                <strong id="detailStableId">-</strong>
-              </div>
               <div class="detail-field">
                 <span>IP</span>
                 <strong id="detailIp">-</strong>
@@ -99,18 +94,6 @@
                 <strong id="detailAdded">-</strong>
               </div>
               <div class="detail-field">
-                <span>Last Activity</span>
-                <strong id="detailActivity">-</strong>
-              </div>
-              <div class="detail-field">
-                <span>Last Connection</span>
-                <strong id="detailConnection">-</strong>
-              </div>
-              <div class="detail-field">
-                <span>Project</span>
-                <strong id="detailProjectValue">-</strong>
-              </div>
-              <div class="detail-field">
                 <span>Tags</span>
                 <strong id="detailTagsValue">-</strong>
               </div>
@@ -121,7 +104,6 @@
                 <div>
                   <p class="eyebrow">Interactive Shell</p>
                   <h4 id="terminalTitle">Terminal</h4>
-                  <p id="selectedConnectionSummary" class="muted shell-copy">Open a client from Hosts to attach this page to that specific live connection.</p>
                 </div>
                 <div class="inline-actions">
                   <button id="openTerminalButton" class="action-button">Open Terminal</button>
@@ -191,6 +173,44 @@
         <button class="action-button" type="submit">Login</button>
       </form>
       <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="fileSystemOverlay" class="overlay filesystem-overlay" aria-hidden="true">
+    <div class="filesystem-card">
+      <div class="filesystem-head">
+        <div>
+          <p class="eyebrow">Remote File System</p>
+          <h2 id="filesystemTitle">Open file system</h2>
+          <p id="filesystemMeta" class="muted">Browse the selected live client over SFTP. Max upload/download 500 MiB.</p>
+        </div>
+        <button id="closeFilesystemButton" class="ghost-button" type="button">Close</button>
+      </div>
+
+      <div class="filesystem-toolbar">
+        <div>
+          <span class="command-label">Selected Directory</span>
+          <strong id="filesystemCurrentPath">/</strong>
+        </div>
+        <div class="inline-actions">
+          <button id="refreshFilesystemButton" class="ghost-button" type="button">Refresh</button>
+          <button id="uploadFilesystemButton" class="action-button" type="button">Upload</button>
+        </div>
+      </div>
+
+      <p id="filesystemMessage" class="filesystem-message"></p>
+      <div id="filesystemTree" class="filesystem-tree"></div>
+      <div id="filesystemPreviewPanel" class="filesystem-preview hidden">
+        <div class="filesystem-preview-head">
+          <div>
+            <span class="command-label">Preview</span>
+            <strong id="filesystemPreviewPath">-</strong>
+          </div>
+          <button id="closeFilesystemPreviewButton" class="ghost-button fs-small-button" type="button">Close Preview</button>
+        </div>
+        <pre id="filesystemPreviewContent" class="filesystem-preview-content"></pre>
+      </div>
+      <input id="filesystemUploadInput" class="hidden" type="file">
     </div>
   </div>
 

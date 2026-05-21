@@ -93,7 +93,19 @@ export async function initPage({ title, load, requireProject = false }) {
     }
     await loadWithAuth(ctx, load);
   } catch (error) {
-    showLogin(ctx);
+    if (isAuthError(error)) {
+      showLogin(ctx);
+      return ctx;
+    }
+    if (isPasswordChangeRequired(error)) {
+      window.location.href = viewHref("profile");
+      return ctx;
+    }
+    hideLogin(ctx);
+    if (shell.topbarMeta) {
+      shell.topbarMeta.textContent = error.message || "Page load failed";
+    }
+    throw error;
   }
 
   return ctx;
@@ -223,8 +235,7 @@ async function loadWithAuth(ctx, load) {
 }
 
 function isAuthError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return message.includes("authentication required") || message.includes("invalid session");
+  return Number(error?.status) === 401;
 }
 
 function isPasswordChangeRequired(error) {
@@ -380,7 +391,10 @@ export async function api(path, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed with ${response.status}`);
+    const error = new Error(payload.error || `Request failed with ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   return payload;

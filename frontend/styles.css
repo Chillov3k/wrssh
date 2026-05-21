@@ -278,6 +278,10 @@ pre {
   box-shadow: 0 10px 24px rgba(180, 35, 24, 0.18);
 }
 
+.danger-button-muted {
+  background: linear-gradient(135deg, #8f1c13, #4f130f);
+}
+
 .sidebar .ghost-button {
   background: rgba(255, 255, 255, 0.06);
   border-color: var(--sidebar-line);
@@ -468,6 +472,14 @@ pre {
   min-width: 0;
 }
 
+.detail-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .panel-header h3,
 .subpanel-header h4 {
   font-size: 1.35rem;
@@ -581,7 +593,7 @@ pre {
 }
 
 .client-table-hosts {
-  min-width: 1040px;
+  min-width: 1160px;
 }
 
 .client-table-head,
@@ -608,7 +620,7 @@ pre {
     minmax(150px, 0.88fr)
     minmax(145px, 0.82fr)
     minmax(160px, 0.9fr)
-    minmax(108px, 0.64fr);
+    minmax(220px, 1.05fr);
 }
 
 .artifact-table {
@@ -715,6 +727,23 @@ pre {
 .client-actions .action-button,
 .client-actions .danger-button {
   width: 100%;
+}
+
+.client-cell-status {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.host-filesystem-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .client-toolbar-slot,
@@ -853,6 +882,54 @@ pre {
   background:
     radial-gradient(circle at top right, rgba(11, 99, 215, 0.09), transparent 34%),
     linear-gradient(135deg, #f9fcff, #eef5ff 58%, #f7fbff);
+}
+
+.ssh-key-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ssh-key-card,
+.ssh-key-empty {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.84);
+}
+
+.ssh-key-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+}
+
+.ssh-key-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ssh-key-card-main p,
+.ssh-key-card-main strong {
+  margin: 0;
+}
+
+.ssh-key-card-main code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.ssh-key-remove {
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.ssh-key-empty {
+  padding: 14px;
+  color: var(--muted);
 }
 
 .project-card-compact strong,
@@ -1571,6 +1648,270 @@ pre {
   margin-top: 10px;
 }
 
+.filesystem-card {
+  position: relative;
+  width: min(1120px, 100%);
+  max-height: min(82vh, 860px);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(180px, 1fr) auto;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background:
+    radial-gradient(circle at top right, rgba(11, 99, 215, 0.11), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.96)),
+    var(--panel);
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.3);
+}
+
+.filesystem-head,
+.filesystem-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.filesystem-head h2,
+.filesystem-head p,
+.filesystem-message {
+  margin: 0;
+}
+
+.filesystem-toolbar {
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.filesystem-toolbar strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+}
+
+.filesystem-message {
+  min-height: 1.25em;
+  color: var(--muted);
+}
+
+.filesystem-message.is-error {
+  color: var(--danger);
+}
+
+.filesystem-message.is-ok {
+  color: var(--ok);
+}
+
+.filesystem-message.is-muted {
+  color: var(--muted);
+}
+
+.filesystem-tree {
+  min-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.9));
+}
+
+.fs-node {
+  min-width: 720px;
+}
+
+.fs-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px 6px calc(8px + (var(--fs-depth, 0) * 24px));
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.fs-row:hover,
+.fs-row.selected {
+  border-color: rgba(11, 99, 215, 0.18);
+  background: rgba(11, 99, 215, 0.06);
+}
+
+.fs-expander,
+.fs-expander-spacer,
+.fs-main {
+  border: none;
+  background: transparent;
+  color: inherit;
+}
+
+.fs-expander {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.fs-expander-spacer {
+  width: 30px;
+  height: 30px;
+  display: block;
+  pointer-events: none;
+}
+
+.fs-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(160px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fs-main:disabled {
+  cursor: default;
+}
+
+.fs-icon {
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 900;
+}
+
+.fs-icon.folder::before {
+  content: "";
+  width: 20px;
+  height: 14px;
+  border-radius: 4px;
+  border: 2px solid currentColor;
+  background: rgba(11, 99, 215, 0.08);
+}
+
+.fs-icon.folder::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  width: 9px;
+  height: 5px;
+  border-radius: 3px 3px 0 0;
+  background: currentColor;
+}
+
+.fs-icon.file::before {
+  content: "";
+  width: 16px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid currentColor;
+  background: rgba(20, 32, 51, 0.04);
+}
+
+.fs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.fs-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.fs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fs-small-button {
+  min-height: 34px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
+.fs-state,
+.fs-empty {
+  margin: 4px 8px 4px calc(50px + (var(--fs-depth, 0) * 24px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--muted);
+  background: rgba(20, 32, 51, 0.04);
+}
+
+.fs-state-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.filesystem-preview {
+  position: absolute;
+  z-index: 5;
+  top: 54%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(920px, calc(100% - 48px));
+  max-height: min(68vh, 560px);
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #f8fbff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.filesystem-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.filesystem-preview-head strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+}
+
+.filesystem-preview-content {
+  max-height: min(42vh, 360px);
+  min-height: 120px;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #16120f;
+  color: #f8f3eb;
+  font-family: var(--mono);
+  line-height: 1.45;
+  white-space: pre;
+}
+
 .command-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1670,6 +2011,41 @@ body.auth-pending .overlay {
   border-radius: 18px;
 }
 
+.offline-delete-card {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.96)),
+    var(--panel);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.offline-delete-card h2,
+.offline-delete-card p {
+  margin: 0;
+}
+
+.offline-delete-actions,
+.online-delete-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.offline-delete-actions .ghost-button {
+  grid-column: 1 / -1;
+}
+
+.offline-delete-actions .danger-button,
+.offline-delete-actions .ghost-button,
+.online-delete-actions .danger-button,
+.online-delete-actions .ghost-button {
+  min-height: 42px;
+}
+
 .login-form {
   display: grid;
   gap: 14px;
@@ -1740,6 +2116,12 @@ html[data-theme="dark"] .profile-notice {
   background:
     radial-gradient(circle at top right, rgba(107, 174, 255, 0.12), transparent 34%),
     linear-gradient(135deg, #132033, #0f1b2b 58%, #142334);
+}
+
+html[data-theme="dark"] .ssh-key-card,
+html[data-theme="dark"] .ssh-key-empty {
+  border-color: rgba(143, 173, 255, 0.14);
+  background: rgba(13, 22, 35, 0.72);
 }
 
 html[data-theme="dark"] .users-create-panel,
@@ -1849,6 +2231,61 @@ html[data-theme="dark"] .overlay {
   background: rgba(3, 7, 13, 0.58);
 }
 
+html[data-theme="dark"] .offline-delete-card {
+  border-color: rgba(143, 173, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(17, 27, 42, 0.98), rgba(14, 22, 35, 0.98)),
+    var(--panel);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+}
+
+html[data-theme="dark"] .filesystem-card {
+  border-color: rgba(143, 173, 255, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(107, 174, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(17, 27, 42, 0.98), rgba(14, 22, 35, 0.98)),
+    var(--panel);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+}
+
+html[data-theme="dark"] .filesystem-toolbar,
+html[data-theme="dark"] .filesystem-tree {
+  background: rgba(13, 22, 35, 0.88);
+  border-color: rgba(143, 173, 255, 0.14);
+}
+
+html[data-theme="dark"] .filesystem-preview {
+  background: #0d1623;
+  border-color: rgba(143, 173, 255, 0.14);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58);
+}
+
+html[data-theme="dark"] .fs-row:hover,
+html[data-theme="dark"] .fs-row.selected {
+  border-color: rgba(107, 174, 255, 0.26);
+  background: rgba(107, 174, 255, 0.08);
+}
+
+html[data-theme="dark"] .fs-expander {
+  border-color: rgba(143, 173, 255, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  color: #8fc7ff;
+}
+
+html[data-theme="dark"] .fs-icon {
+  color: #8fc7ff;
+}
+
+html[data-theme="dark"] .fs-icon.folder::before,
+html[data-theme="dark"] .fs-icon.file::before {
+  background: rgba(107, 174, 255, 0.08);
+}
+
+html[data-theme="dark"] .fs-state,
+html[data-theme="dark"] .fs-empty {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .hidden {
   display: none !important;
 }
@@ -1870,7 +2307,7 @@ html[data-theme="dark"] .overlay {
 
   .client-table-head-hosts,
   .client-row-hosts {
-    min-width: 980px;
+    min-width: 1100px;
   }
 
   .artifact-table-head,
@@ -1986,6 +2423,29 @@ html[data-theme="dark"] .overlay {
     width: 100%;
   }
 
+  .offline-delete-actions,
+  .online-delete-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .filesystem-card {
+    max-height: 90vh;
+    padding: 18px;
+  }
+
+  .filesystem-preview {
+    top: 56%;
+    width: calc(100% - 24px);
+    max-height: calc(90vh - 48px);
+  }
+
+  .filesystem-head,
+  .filesystem-toolbar,
+  .filesystem-preview-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .hosts-toolbar-controls {
     justify-content: stretch;
   }
@@ -2098,5 +2558,17 @@ html[data-theme="dark"] .overlay {
   .terminal-inline {
     min-height: 300px;
     height: 300px;
+  }
+
+  .filesystem-overlay {
+    padding: 12px;
+  }
+
+  .filesystem-tree {
+    min-height: 320px;
+  }
+
+  .fs-node {
+    min-width: 620px;
   }
 }

@@ -1,5 +1,6 @@
 import {
   api,
+  appPath,
   buildJumpTarget,
   copyFromButton,
   escapeAttribute,
@@ -11,8 +12,8 @@ import {
   loadHost,
   loadProjects,
   loadSystemOptions,
+  makeClientRow,
   markSynced,
-  platformLabel,
   resolveConnection,
   websocketURL,
   viewHref,
@@ -30,16 +31,10 @@ const elements = {
   detailHostnameMeta: document.getElementById("detailHostnameMeta"),
   detailSubline: document.getElementById("detailSubline"),
   detailStatusBadge: document.getElementById("detailStatusBadge"),
-  detailHostId: document.getElementById("detailHostId"),
-  detailStableId: document.getElementById("detailStableId"),
   detailIp: document.getElementById("detailIp"),
   detailPlatform: document.getElementById("detailPlatform"),
   detailAdded: document.getElementById("detailAdded"),
-  detailActivity: document.getElementById("detailActivity"),
-  detailConnection: document.getElementById("detailConnection"),
-  detailProjectValue: document.getElementById("detailProjectValue"),
   detailTagsValue: document.getElementById("detailTagsValue"),
-  selectedConnectionSummary: document.getElementById("selectedConnectionSummary"),
   commandTemplates: document.getElementById("commandTemplates"),
   openTerminalButton: document.getElementById("openTerminalButton"),
   terminalTitle: document.getElementById("terminalTitle"),
@@ -53,10 +48,43 @@ const elements = {
   hostTagsInput: document.getElementById("hostTagsInput"),
   hostProjectSelect: document.getElementById("hostProjectSelect"),
   saveHostMetadataButton: document.getElementById("saveHostMetadataButton"),
-  hostMetadataOutput: document.getElementById("hostMetadataOutput")
+  hostMetadataOutput: document.getElementById("hostMetadataOutput"),
+  openFilesystemButton: document.getElementById("openFilesystemButton"),
+  fileSystemOverlay: document.getElementById("fileSystemOverlay"),
+  closeFilesystemButton: document.getElementById("closeFilesystemButton"),
+  filesystemTitle: document.getElementById("filesystemTitle"),
+  filesystemMeta: document.getElementById("filesystemMeta"),
+  filesystemCurrentPath: document.getElementById("filesystemCurrentPath"),
+  refreshFilesystemButton: document.getElementById("refreshFilesystemButton"),
+  uploadFilesystemButton: document.getElementById("uploadFilesystemButton"),
+  filesystemMessage: document.getElementById("filesystemMessage"),
+  filesystemTree: document.getElementById("filesystemTree"),
+  filesystemPreviewPanel: document.getElementById("filesystemPreviewPanel"),
+  filesystemPreviewPath: document.getElementById("filesystemPreviewPath"),
+  filesystemPreviewContent: document.getElementById("filesystemPreviewContent"),
+  closeFilesystemPreviewButton: document.getElementById("closeFilesystemPreviewButton"),
+  filesystemUploadInput: document.getElementById("filesystemUploadInput")
 };
 
 const terminalView = new TerminalView(elements.terminalViewport, elements.terminalOutput);
+const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
+const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const filesystemAvailable = Boolean(
+  elements.fileSystemOverlay &&
+  elements.closeFilesystemButton &&
+  elements.filesystemTitle &&
+  elements.filesystemMeta &&
+  elements.filesystemCurrentPath &&
+  elements.refreshFilesystemButton &&
+  elements.uploadFilesystemButton &&
+  elements.filesystemMessage &&
+  elements.filesystemTree &&
+  elements.filesystemPreviewPanel &&
+  elements.filesystemPreviewPath &&
+  elements.filesystemPreviewContent &&
+  elements.closeFilesystemPreviewButton &&
+  elements.filesystemUploadInput
+);
 
 const pageState = {
   host: null,
@@ -72,6 +100,13 @@ const pageState = {
     cols: 120,
     rows: 36,
     resizeTimer: 0
+  },
+  filesystem: {
+    open: false,
+    selectedDirectory: "/",
+    uploadDirectory: "/",
+    nodes: new Map(),
+    preview: null
   }
 };
 
@@ -88,6 +123,20 @@ elements.closeTerminalButton.addEventListener("click", () => {
 });
 elements.sendCtrlCButton.addEventListener("click", () => sendTerminalInput("\u0003"));
 elements.saveHostMetadataButton.addEventListener("click", saveHostMetadata);
+if (filesystemAvailable) {
+  elements.openFilesystemButton?.addEventListener("click", openFilesystem);
+  elements.closeFilesystemButton.addEventListener("click", closeFilesystem);
+  elements.refreshFilesystemButton.addEventListener("click", refreshSelectedFilesystemDirectory);
+  elements.uploadFilesystemButton.addEventListener("click", () => triggerFilesystemUpload(pageState.filesystem.selectedDirectory));
+  elements.filesystemTree.addEventListener("click", handleFilesystemClick);
+  elements.closeFilesystemPreviewButton.addEventListener("click", clearFilesystemPreview);
+  elements.filesystemUploadInput.addEventListener("change", uploadSelectedFilesystemFile);
+  elements.fileSystemOverlay.addEventListener("click", (event) => {
+    if (event.target === elements.fileSystemOverlay) {
+      closeFilesystem();
+    }
+  });
+}
 elements.terminalViewport.addEventListener("keydown", handleTerminalKeydown);
 elements.terminalViewport.addEventListener("paste", handleTerminalPaste);
 elements.commandTemplates.addEventListener("click", async (event) => {
@@ -161,38 +210,34 @@ function renderHost() {
   }
 
   const connection = currentConnection();
-  const jumpTarget = buildJumpTarget(pageState.systemOptions, host, pageState.ctx?.user);
+  const row = currentRow(connection);
   const commands = currentCommands(connection);
-  const platform = platformLabel(connection?.version || host.version);
-  const currentTarget = connection?.connectionId || "offline";
+  const displayName = row.hostname || host.preferredAlias || host.stableId || "-";
+  const currentTarget = row.connectionId || "offline";
 
   elements.hostDetailEmpty.classList.add("hidden");
   elements.hostDetailContent.classList.remove("hidden");
 
-  elements.detailHostname.textContent = host.hostname || connection?.hostname || host.preferredAlias || host.stableId;
-  elements.detailHostnameMeta.textContent = host.hostname || connection?.hostname || host.preferredAlias || "-";
-  elements.detailSubline.textContent = `${host.project || "Unassigned"} · ${host.comment || "no comment"} · ${connection?.version || host.version || "unknown version"}`;
+  elements.detailHostname.textContent = displayName;
+  elements.detailHostnameMeta.textContent = displayName;
+  elements.detailSubline.textContent = `${row.project || "Unassigned"} · ${row.comment || "no comment"} · ${row.version || "unknown version"}`;
   elements.detailStatusBadge.textContent = connection ? "Online" : "Offline";
   elements.detailStatusBadge.className = `status-pill ${connection ? "online" : "offline"}`;
-  elements.detailHostId.textContent = connection?.connectionId || host.hostId || "-";
-  elements.detailStableId.textContent = host.stableId;
-  elements.detailIp.textContent = connection?.remoteIp || host.ip || host.remoteAddr || "-";
-  elements.detailPlatform.textContent = platform;
-  elements.detailAdded.textContent = formatDate(host.dateAdded);
-  elements.detailActivity.textContent = formatDate(host.lastActivityAt);
-  elements.detailConnection.textContent = formatDate(host.lastConnectionAt || host.lastDisconnectAt);
-  elements.detailProjectValue.textContent = host.project || "Unassigned";
-  elements.detailTagsValue.textContent = host.tags?.join(", ") || "-";
+  elements.detailIp.textContent = row.ip || row.remoteAddr || "-";
+  elements.detailPlatform.textContent = row.platform || "-";
+  elements.detailAdded.textContent = formatDate(row.dateAdded || row.lastActivityAt);
+  elements.detailTagsValue.textContent = row.tags?.join(", ") || "-";
   renderHostMetadataForm();
 
   elements.openTerminalButton.disabled = !connection;
+  if (elements.openFilesystemButton) {
+    elements.openFilesystemButton.disabled = !connection;
+    elements.openFilesystemButton.classList.toggle("hidden", !filesystemAvailable);
+  }
   elements.sendCtrlCButton.disabled = !pageState.terminal.socket;
   elements.closeTerminalButton.disabled = !pageState.terminal.socket;
   elements.openTerminalButton.textContent = pageState.terminal.connectionId === connection?.connectionId ? "Reconnect Terminal" : "Open Terminal";
-  elements.terminalTitle.textContent = `${host.hostname || host.preferredAlias || host.stableId} · ${currentTarget}`;
-  elements.selectedConnectionSummary.textContent = connection
-    ? `Bound to ${connection.connectionId} · ${connection.remoteAddr || connection.remoteIp || "-"} · ssh -J ${jumpTarget} ${connection.connectionId}`
-    : "The selected client is currently offline. Open a live connection from Hosts to attach the shell.";
+  elements.terminalTitle.textContent = `${displayName} · ${currentTarget}`;
 
   elements.commandTemplates.innerHTML = [
     ["Full Shell", commands.ssh],
@@ -214,8 +259,467 @@ function currentConnection() {
   return resolveConnection(pageState.host, pageState.selectedConnectionId);
 }
 
+function currentRow(connection = currentConnection()) {
+  return makeClientRow(pageState.host, connection);
+}
+
 function currentCommands(connection = currentConnection()) {
   return hostCommandTemplates(pageState.host, connection, buildJumpTarget(pageState.systemOptions, pageState.host, pageState.ctx?.user));
+}
+
+function openFilesystem() {
+  const connection = currentConnection();
+  if (!pageState.host || !connection) {
+    return;
+  }
+
+  pageState.filesystem.open = true;
+  pageState.filesystem.selectedDirectory = "/";
+  pageState.filesystem.uploadDirectory = "/";
+  pageState.filesystem.preview = null;
+  pageState.filesystem.nodes = new Map([
+    ["/", {
+      path: "/",
+      name: "/",
+      type: "directory",
+      expanded: false,
+      loaded: false,
+      loading: false,
+      error: "",
+      items: []
+    }]
+  ]);
+
+  const row = currentRow(connection);
+  elements.filesystemTitle.textContent = `${row.hostname || row.stableId} File System`;
+  elements.filesystemMeta.textContent = `Connection ${row.connectionId || "-"} · ${row.remoteAddr || row.ip || "-"} · max upload/download ${MAX_FILE_TRANSFER_LABEL}`;
+  setFilesystemMessage("", "");
+  elements.fileSystemOverlay.classList.add("visible");
+  elements.fileSystemOverlay.setAttribute("aria-hidden", "false");
+  renderFilesystem();
+}
+
+function closeFilesystem() {
+  pageState.filesystem.open = false;
+  elements.fileSystemOverlay.classList.remove("visible");
+  elements.fileSystemOverlay.setAttribute("aria-hidden", "true");
+  elements.filesystemUploadInput.value = "";
+}
+
+function handleFilesystemClick(event) {
+  const toggle = event.target.closest("[data-fs-toggle]");
+  if (toggle) {
+    toggleFilesystemDirectory(toggle.dataset.fsToggle || "/");
+    return;
+  }
+
+  const select = event.target.closest("[data-fs-select]");
+  if (select) {
+    toggleFilesystemDirectory(select.dataset.fsSelect || "/");
+    return;
+  }
+
+  const download = event.target.closest("[data-fs-download]");
+  if (download) {
+    downloadFilesystemFile(download.dataset.fsDownload || "");
+    return;
+  }
+
+  const preview = event.target.closest("[data-fs-preview]");
+  if (preview) {
+    previewFilesystemFile(preview.dataset.fsPreview || "");
+    return;
+  }
+
+  const upload = event.target.closest("[data-fs-upload]");
+  if (upload) {
+    triggerFilesystemUpload(upload.dataset.fsUpload || "/");
+  }
+}
+
+async function toggleFilesystemDirectory(remotePath) {
+  const node = filesystemNode(remotePath);
+  if (!node || node.type !== "directory") {
+    return;
+  }
+
+  selectFilesystemDirectory(node.path);
+  node.expanded = !node.expanded;
+  if (node.expanded && !node.loaded && !node.loading) {
+    setFilesystemMessage("", "");
+    clearFilesystemPreview();
+    await loadFilesystemDirectory(node.path);
+    return;
+  }
+  renderFilesystem();
+}
+
+function selectFilesystemDirectory(remotePath) {
+  const node = filesystemNode(remotePath);
+  if (!node || node.type !== "directory") {
+    return;
+  }
+  pageState.filesystem.selectedDirectory = node.path;
+  renderFilesystem();
+}
+
+async function refreshSelectedFilesystemDirectory() {
+  const selected = pageState.filesystem.selectedDirectory || "/";
+  const node = filesystemNode(selected);
+  if (!node) {
+    return;
+  }
+  node.loaded = false;
+  node.expanded = true;
+  setFilesystemMessage("", "");
+  await loadFilesystemDirectory(selected);
+}
+
+async function loadFilesystemDirectory(remotePath) {
+  const node = filesystemNode(remotePath);
+  if (!node) {
+    return;
+  }
+
+  node.loading = true;
+  node.error = "";
+  renderFilesystem();
+
+  try {
+    const response = await api(filesystemAPIPath("", { path: node.path }));
+    node.items = Array.isArray(response.items) ? response.items : [];
+    node.loaded = true;
+    node.expanded = true;
+    node.error = "";
+    node.items.forEach((item) => {
+      if (item.type !== "directory") {
+        return;
+      }
+      const existing = pageState.filesystem.nodes.get(item.path);
+      pageState.filesystem.nodes.set(item.path, {
+        ...(existing || {}),
+        ...item,
+        expanded: existing?.expanded || false,
+        loaded: existing?.loaded || false,
+        loading: false,
+        error: existing?.error || "",
+        items: existing?.items || []
+      });
+    });
+  } catch (error) {
+    const message = filesystemErrorMessage(error.message);
+    node.error = message;
+    setFilesystemMessage(message, "error");
+  } finally {
+    node.loading = false;
+    renderFilesystem();
+  }
+}
+
+async function downloadFilesystemFile(remotePath) {
+  if (!remotePath) {
+    return;
+  }
+
+  setFilesystemMessage(`Downloading ${remotePath}...`, "muted");
+  try {
+    const response = await fetch(appPath(filesystemAPIPath("/download", { path: remotePath })), {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      const payload = await readJSONResponse(response);
+      throw new Error(payload.error || `Download failed with ${response.status}`);
+    }
+    const length = Number(response.headers.get("Content-Length") || "0");
+    if (Number.isFinite(length) && length > MAX_FILE_TRANSFER_BYTES) {
+      throw new Error(maxFileTransferMessage("download"));
+    }
+
+    const blob = await response.blob();
+    const anchor = document.createElement("a");
+    const objectURL = URL.createObjectURL(blob);
+    anchor.href = objectURL;
+    anchor.download = filenameFromDisposition(response.headers.get("Content-Disposition")) || remotePath.split("/").filter(Boolean).pop() || "download";
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(objectURL);
+    setFilesystemMessage(`Downloaded ${remotePath}.`, "ok");
+  } catch (error) {
+    setFilesystemMessage(filesystemErrorMessage(error.message), "error");
+  }
+}
+
+async function previewFilesystemFile(remotePath) {
+  if (!remotePath) {
+    return;
+  }
+
+  setFilesystemMessage(`Loading preview for ${remotePath}...`, "muted");
+  try {
+    const preview = await api(filesystemAPIPath("/preview", { path: remotePath }));
+    pageState.filesystem.preview = preview;
+    setFilesystemMessage(preview.truncated ? "Showing first 20 lines." : "Preview loaded.", "ok");
+    renderFilesystemPreview();
+  } catch (error) {
+    clearFilesystemPreview();
+    setFilesystemMessage(filesystemErrorMessage(error.message), "error");
+  }
+}
+
+function triggerFilesystemUpload(directory) {
+  const node = filesystemNode(directory);
+  if (!node || node.type !== "directory") {
+    return;
+  }
+  pageState.filesystem.uploadDirectory = node.path;
+  pageState.filesystem.selectedDirectory = node.path;
+  setFilesystemMessage("", "");
+  renderFilesystem();
+  elements.filesystemUploadInput.click();
+}
+
+async function uploadSelectedFilesystemFile() {
+  const file = elements.filesystemUploadInput.files?.[0];
+  if (!file) {
+    return;
+  }
+  if (file.size > MAX_FILE_TRANSFER_BYTES) {
+    elements.filesystemUploadInput.value = "";
+    setFilesystemMessage(maxFileTransferMessage("upload"), "error");
+    return;
+  }
+
+  const directory = pageState.filesystem.uploadDirectory || pageState.filesystem.selectedDirectory || "/";
+  const formData = new FormData();
+  formData.append("file", file);
+
+  elements.uploadFilesystemButton.disabled = true;
+  setFilesystemMessage(`Uploading ${file.name} to ${directory}...`, "muted");
+
+  try {
+    const response = await fetch(appPath(filesystemAPIPath("/upload", { directory })), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      body: formData
+    });
+    const payload = await readJSONResponse(response);
+    if (!response.ok) {
+      throw new Error(payload.error || `Upload failed with ${response.status}`);
+    }
+
+    setFilesystemMessage(`Uploaded ${payload.name || file.name} to ${payload.path || directory}.`, "ok");
+    const node = filesystemNode(directory);
+    if (node) {
+      node.loaded = false;
+      node.expanded = true;
+      await loadFilesystemDirectory(directory);
+    }
+  } catch (error) {
+    setFilesystemMessage(filesystemErrorMessage(error.message), "error");
+  } finally {
+    elements.uploadFilesystemButton.disabled = false;
+    elements.filesystemUploadInput.value = "";
+    renderFilesystem();
+  }
+}
+
+async function readJSONResponse(response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return { error: text };
+  }
+}
+
+function filesystemNode(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  return pageState.filesystem.nodes.get(path);
+}
+
+function normalizeFilesystemPath(remotePath) {
+  const value = String(remotePath || "").trim();
+  if (!value || value === ".") {
+    return "/";
+  }
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemAPIPath(suffix = "", params = {}) {
+  const base = withProjectQuery(`/api/hosts/${encodeURIComponent(pageState.host.stableId)}/filesystem${suffix}`, pageState.ctx?.project || "");
+  const url = new URL(base, window.location.origin);
+  const connection = currentConnection();
+  if (connection?.connectionId) {
+    url.searchParams.set("connectionId", connection.connectionId);
+  }
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    url.searchParams.set(key, String(value));
+  });
+  return `${url.pathname}${url.search}`;
+}
+
+function renderFilesystem() {
+  const root = filesystemNode("/");
+  elements.filesystemCurrentPath.textContent = pageState.filesystem.selectedDirectory || "/";
+  elements.refreshFilesystemButton.disabled = !root;
+  elements.uploadFilesystemButton.disabled = !root;
+  elements.filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;
+  renderFilesystemPreview();
+}
+
+function renderFilesystemNode(node, depth) {
+  const isDirectory = node.type === "directory";
+  const selected = isDirectory && node.path === pageState.filesystem.selectedDirectory;
+  const childMarkup = isDirectory && node.expanded
+    ? renderFilesystemChildren(node, depth + 1)
+    : "";
+  const buttonLabel = node.expanded ? "Collapse" : "Expand";
+  const rowStyle = `--fs-depth:${depth}`;
+  const meta = filesystemMeta(node);
+  const expander = isDirectory
+    ? `<button class="fs-expander" type="button" data-fs-toggle="${escapeAttribute(node.path)}" aria-label="${buttonLabel} ${escapeAttribute(node.name)}">${node.expanded ? "-" : "+"}</button>`
+    : `<span class="fs-expander-spacer" aria-hidden="true"></span>`;
+  const downloadAction = node.type === "file" && Number(node.size) > MAX_FILE_TRANSFER_BYTES
+    ? `<button class="ghost-button fs-small-button" type="button" disabled title="${escapeAttribute(maxFileTransferMessage("download"))}">Max ${escapeHtml(MAX_FILE_TRANSFER_LABEL)}</button>`
+    : `${node.type === "file" ? `<button class="ghost-button fs-small-button" type="button" data-fs-download="${escapeAttribute(node.path)}">Download</button>` : ""}`;
+
+  return `
+    <div class="fs-node">
+      <div class="fs-row ${selected ? "selected" : ""}" style="${rowStyle}">
+        ${expander}
+        <button class="fs-main" type="button" ${isDirectory ? `data-fs-select="${escapeAttribute(node.path)}"` : "disabled"}>
+          <span class="fs-icon ${isDirectory ? (node.path === "/" ? "root" : "folder") : "file"}">${node.path === "/" ? "/" : ""}</span>
+          <span class="fs-name">${escapeHtml(node.name || node.path)}</span>
+          <span class="fs-meta">${escapeHtml(meta)}</span>
+        </button>
+        <div class="fs-actions">
+          ${isDirectory ? `<button class="ghost-button fs-small-button" type="button" data-fs-upload="${escapeAttribute(node.path)}">Upload</button>` : ""}
+          ${node.type === "file" ? `<button class="ghost-button fs-small-button" type="button" data-fs-preview="${escapeAttribute(node.path)}">Preview</button>` : ""}
+          ${downloadAction}
+        </div>
+      </div>
+      ${node.loading ? `<div class="fs-state" style="${rowStyle}">Loading...</div>` : ""}
+      ${node.error ? `<div class="fs-state fs-state-error" style="${rowStyle}">${escapeHtml(node.error)}</div>` : ""}
+      ${childMarkup}
+    </div>
+  `;
+}
+
+function renderFilesystemChildren(node, depth) {
+  if (node.loading) {
+    return "";
+  }
+  if (!node.loaded) {
+    return `<div class="fs-state" style="--fs-depth:${depth}">Open this directory to load its contents.</div>`;
+  }
+  if (!node.items.length) {
+    return `<div class="fs-state" style="--fs-depth:${depth}">Empty directory.</div>`;
+  }
+
+  return node.items.map((item) => {
+    if (item.type === "directory") {
+      return renderFilesystemNode(filesystemNode(item.path) || {
+        ...item,
+        expanded: false,
+        loaded: false,
+        loading: false,
+        error: "",
+        items: []
+      }, depth);
+    }
+    return renderFilesystemNode(item, depth);
+  }).join("");
+}
+
+function filesystemMeta(node) {
+  const parts = [];
+  if (node.type && node.type !== "directory") {
+    parts.push(node.type);
+  }
+  if (node.type === "file") {
+    parts.push(formatFileSize(node.size));
+  }
+  if (node.mode) {
+    parts.push(node.mode);
+  }
+  if (node.modifiedAt) {
+    parts.push(formatDate(node.modifiedAt));
+  }
+  return parts.join(" · ");
+}
+
+function formatFileSize(size) {
+  const value = Number(size);
+  if (!Number.isFinite(value) || value < 0) {
+    return "-";
+  }
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let current = value / 1024;
+  for (const unit of units) {
+    if (current < 1024) {
+      return `${current.toFixed(current >= 10 ? 1 : 2)} ${unit}`;
+    }
+    current /= 1024;
+  }
+  return `${current.toFixed(1)} PB`;
+}
+
+function setFilesystemMessage(message, type) {
+  elements.filesystemMessage.textContent = message;
+  elements.filesystemMessage.className = `filesystem-message ${type ? `is-${type}` : ""}`;
+}
+
+function renderFilesystemPreview() {
+  const preview = pageState.filesystem.preview;
+  elements.filesystemPreviewPanel.classList.toggle("hidden", !preview);
+  if (!preview) {
+    elements.filesystemPreviewPath.textContent = "-";
+    elements.filesystemPreviewContent.textContent = "";
+    return;
+  }
+
+  elements.filesystemPreviewPath.textContent = preview.path || preview.name || "-";
+  elements.filesystemPreviewContent.textContent = preview.content || "";
+}
+
+function clearFilesystemPreview() {
+  pageState.filesystem.preview = null;
+  renderFilesystemPreview();
+}
+
+function filesystemErrorMessage(message) {
+  const value = String(message || "request failed").trim();
+  if (value.toLowerCase().includes("permission denied")) {
+    return "permission denied";
+  }
+  if (value.toLowerCase().includes("exceeds maximum transfer size") || value.toLowerCase().includes("request entity too large")) {
+    return maxFileTransferMessage("transfer");
+  }
+  return value;
+}
+
+function maxFileTransferMessage(action) {
+  return `Cannot ${action} files larger than ${MAX_FILE_TRANSFER_LABEL}.`;
+}
+
+function filenameFromDisposition(header) {
+  const value = String(header || "");
+  const match = value.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || "";
 }
 
 function renderHostMetadataForm() {

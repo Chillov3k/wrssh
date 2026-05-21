@@ -106,6 +106,71 @@
     </div>
   </div>
 
+  <div id="offlineDeleteOverlay" class="overlay">
+    <div class="overlay-card offline-delete-card">
+      <p class="eyebrow">Offline Client</p>
+      <h2>Delete Offline Client</h2>
+      <p id="offlineDeleteMessage" class="muted"></p>
+      <div class="offline-delete-actions">
+        <button id="deleteOnlyOfflineButton" class="danger-button" type="button">Delete Only This Client</button>
+        <button id="deleteAllOfflineButton" class="danger-button danger-button-muted" type="button">Delete All Offline Clients</button>
+        <button id="cancelOfflineDeleteButton" class="ghost-button" type="button">Cancel</button>
+      </div>
+      <p id="offlineDeleteError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="onlineDeleteOverlay" class="overlay">
+    <div class="overlay-card offline-delete-card">
+      <p class="eyebrow">Online Client</p>
+      <h2>Delete Online Client</h2>
+      <p id="onlineDeleteMessage" class="muted"></p>
+      <div class="online-delete-actions">
+        <button id="confirmOnlineDeleteButton" class="danger-button" type="button">Delete Client</button>
+        <button id="cancelOnlineDeleteButton" class="ghost-button" type="button">Cancel</button>
+      </div>
+      <p id="onlineDeleteError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="fileSystemOverlay" class="overlay filesystem-overlay" aria-hidden="true">
+    <div class="filesystem-card">
+      <div class="filesystem-head">
+        <div>
+          <p class="eyebrow">Remote File System</p>
+          <h2 id="filesystemTitle">Open file system</h2>
+          <p id="filesystemMeta" class="muted">Browse the selected live client over SFTP. Max upload/download 500 MiB.</p>
+        </div>
+        <button id="closeFilesystemButton" class="ghost-button" type="button">Close</button>
+      </div>
+
+      <div class="filesystem-toolbar">
+        <div>
+          <span class="command-label">Selected Directory</span>
+          <strong id="filesystemCurrentPath">/</strong>
+        </div>
+        <div class="inline-actions">
+          <button id="refreshFilesystemButton" class="ghost-button" type="button">Refresh</button>
+          <button id="uploadFilesystemButton" class="action-button" type="button">Upload</button>
+        </div>
+      </div>
+
+      <p id="filesystemMessage" class="filesystem-message"></p>
+      <div id="filesystemTree" class="filesystem-tree"></div>
+      <div id="filesystemPreviewPanel" class="filesystem-preview hidden">
+        <div class="filesystem-preview-head">
+          <div>
+            <span class="command-label">Preview</span>
+            <strong id="filesystemPreviewPath">-</strong>
+          </div>
+          <button id="closeFilesystemPreviewButton" class="ghost-button fs-small-button" type="button">Close Preview</button>
+        </div>
+        <pre id="filesystemPreviewContent" class="filesystem-preview-content"></pre>
+      </div>
+      <input id="filesystemUploadInput" class="hidden" type="file">
+    </div>
+  </div>
+
   <script type="module" src="hosts.js"></script>
 </body>
 </html>

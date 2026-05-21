@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"path"
@@ -111,6 +113,112 @@ func (m *Manager) ExecuteCommand(ctx context.Context, projectName, connectionID,
 		Output:   response.Output,
 		TimedOut: response.TimedOut,
 	}, nil
+}
+
+type RuntimeFileDownload struct {
+	Body          io.ReadCloser
+	Filename      string
+	ContentType   string
+	ContentLength int64
+}
+
+func (m *Manager) ListFiles(ctx context.Context, projectName, connectionID, remotePath string) (rssh.FileList, error) {
+	requestPath := runtimeConnectionFilesystemPath(connectionID, "filesystem")
+	query := url.Values{}
+	query.Set("path", remotePath)
+
+	var listing rssh.FileList
+	response, err := m.runtimeRequest(ctx, projectName, m.httpClient, http.MethodGet, requestPath+"?"+query.Encode(), nil, "")
+	if err != nil {
+		return rssh.FileList{}, err
+	}
+	defer response.Body.Close()
+
+	if err := json.NewDecoder(response.Body).Decode(&listing); err != nil && !errors.Is(err, io.EOF) {
+		return rssh.FileList{}, err
+	}
+	return listing, nil
+}
+
+func (m *Manager) DownloadFile(ctx context.Context, projectName, connectionID, remotePath string) (RuntimeFileDownload, error) {
+	query := url.Values{}
+	query.Set("path", remotePath)
+	response, err := m.runtimeRequest(ctx, projectName, m.fileHTTPClient, http.MethodGet, runtimeConnectionFilesystemPath(connectionID, "filesystem/download")+"?"+query.Encode(), nil, "")
+	if err != nil {
+		return RuntimeFileDownload{}, err
+	}
+
+	filename := path.Base(rssh.CleanRemotePath(remotePath))
+	if _, params, parseErr := mime.ParseMediaType(response.Header.Get("Content-Disposition")); parseErr == nil {
+		if value := strings.TrimSpace(params["filename"]); value != "" {
+			filename = value
+		}
+	}
+
+	return RuntimeFileDownload{
+		Body:          response.Body,
+		Filename:      filename,
+		ContentType:   response.Header.Get("Content-Type"),
+		ContentLength: response.ContentLength,
+	}, nil
+}
+
+func (m *Manager) PreviewFile(ctx context.Context, projectName, connectionID, remotePath string) (rssh.FilePreview, error) {
+	query := url.Values{}
+	query.Set("path", remotePath)
+	response, err := m.runtimeRequest(ctx, projectName, m.httpClient, http.MethodGet, runtimeConnectionFilesystemPath(connectionID, "filesystem/preview")+"?"+query.Encode(), nil, "")
+	if err != nil {
+		return rssh.FilePreview{}, err
+	}
+	defer response.Body.Close()
+
+	var preview rssh.FilePreview
+	if err := json.NewDecoder(response.Body).Decode(&preview); err != nil && !errors.Is(err, io.EOF) {
+		return rssh.FilePreview{}, err
+	}
+	return preview, nil
+}
+
+func (m *Manager) UploadFile(ctx context.Context, projectName, connectionID, directory, filename string, reader io.Reader) (rssh.FileUploadResult, error) {
+	pr, pw := io.Pipe()
+	multipartWriter := multipart.NewWriter(pw)
+
+	go func() {
+		var err error
+		defer func() {
+			if err != nil {
+				_ = pw.CloseWithError(err)
+				return
+			}
+			if closeErr := multipartWriter.Close(); closeErr != nil {
+				_ = pw.CloseWithError(closeErr)
+				return
+			}
+			_ = pw.Close()
+		}()
+
+		part, err := multipartWriter.CreateFormFile("file", filename)
+		if err != nil {
+			return
+		}
+		_, err = io.Copy(part, reader)
+	}()
+
+	query := url.Values{}
+	query.Set("directory", directory)
+	requestPath := runtimeConnectionFilesystemPath(connectionID, "filesystem/upload") + "?" + query.Encode()
+	response, err := m.runtimeRequest(ctx, projectName, m.fileHTTPClient, http.MethodPost, requestPath, pr, multipartWriter.FormDataContentType())
+	if err != nil {
+		_ = pr.CloseWithError(err)
+		return rssh.FileUploadResult{}, err
+	}
+	defer response.Body.Close()
+
+	var result rssh.FileUploadResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil && !errors.Is(err, io.EOF) {
+		return rssh.FileUploadResult{}, err
+	}
+	return result, nil
 }
 
 func (m *Manager) DialTerminal(ctx context.Context, projectName, stableID, connectionID string, cols, rows uint32, shell string) (*websocket.Conn, error) {
@@ -227,6 +335,52 @@ func (m *Manager) runtimeJSONWithClient(ctx context.Context, client *http.Client
 	default:
 		return fmt.Errorf("runtime API %s %s failed: %s", method, requestPath, message)
 	}
+}
+
+func (m *Manager) runtimeRequest(ctx context.Context, projectName string, client *http.Client, method, requestPath string, body io.Reader, contentType string) (*http.Response, error) {
+	if m == nil {
+		return nil, fmt.Errorf("project runtime manager is disabled")
+	}
+	if client == nil {
+		client = m.httpClient
+	}
+
+	runtime, agentToken, err := m.runtimeCredentials(projectName)
+	if err != nil {
+		return nil, err
+	}
+
+	request, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(runtime.AgentBaseURL, "/")+requestPath, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+agentToken)
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return response, nil
+	}
+
+	defer response.Body.Close()
+	message := response.Status
+	var payloadError struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payloadError); err == nil && strings.TrimSpace(payloadError.Error) != "" {
+		message = strings.TrimSpace(payloadError.Error)
+	}
+
+	return nil, fmt.Errorf("runtime API %s %s failed: %s", method, requestPath, message)
+}
+
+func runtimeConnectionFilesystemPath(connectionID, suffix string) string {
+	return path.Join("/internal/connections", url.PathEscape(connectionID), suffix)
 }
 
 func (m *Manager) runtimeCredentials(projectName string) (store.ProjectRuntimeRecord, string, error) {

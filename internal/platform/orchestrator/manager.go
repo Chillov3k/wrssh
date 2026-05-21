@@ -20,7 +20,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const runtimeBuildAPITimeout = 5 * time.Minute
+const (
+	runtimeBuildAPITimeout = 5 * time.Minute
+	runtimeFileAPITimeout  = 10 * time.Minute
+)
 
 type Manager struct {
 	cfg               platformconfig.Config
@@ -28,6 +31,7 @@ type Manager struct {
 	docker            *DockerClient
 	httpClient        *http.Client
 	buildHTTPClient   *http.Client
+	fileHTTPClient    *http.Client
 	platformContainer string
 }
 
@@ -51,6 +55,9 @@ func NewManager(ctx context.Context, cfg platformconfig.Config, appStore *store.
 		},
 		buildHTTPClient: &http.Client{
 			Timeout: runtimeBuildAPITimeout,
+		},
+		fileHTTPClient: &http.Client{
+			Timeout: runtimeFileAPITimeout,
 		},
 	}, nil
 }
