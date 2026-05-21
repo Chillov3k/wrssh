@@ -79,11 +79,14 @@
             </div>
 
             <form id="profileKeysForm" class="field-stack">
+              <div id="profileKeysList" class="ssh-key-list"></div>
               <label class="field-stack">
-                <span>SSH Public Keys</span>
-                <textarea id="profileAuthorizedKeysInput" rows="10" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+                <span>Add SSH Public Key</span>
+                <textarea id="profileAuthorizedKeysInput" rows="4" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
               </label>
+              <p class="field-note">Paste one key or several authorized_keys lines. Existing saved keys stay in the list until you remove them.</p>
               <div class="inline-actions">
+                <button id="addProfileKeyButton" class="ghost-button" type="button">Add Key</button>
                 <button id="saveProfileKeysButton" class="action-button" type="submit">Save SSH Keys</button>
               </div>
             </form>

@@ -20,8 +20,8 @@ const (
 	defaultRuntimeRSSHListenAddr    = ":2222"
 	defaultRuntimeRSSHTimeout       = 5
 	defaultReadHeaderTimeoutSec     = 5
-	defaultReadTimeoutSec           = 15
-	defaultWriteTimeoutSec          = 300
+	defaultReadTimeoutSec           = 600
+	defaultWriteTimeoutSec          = 600
 	defaultIdleTimeoutSec           = 60
 )
 

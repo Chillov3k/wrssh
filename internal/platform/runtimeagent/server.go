@@ -48,6 +48,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /internal/artifacts/{urlPath}", s.handleDeleteArtifact)
 	mux.HandleFunc("POST /internal/connections/{connectionID}/kill", s.handleKillConnection)
 	mux.HandleFunc("POST /internal/connections/{connectionID}/exec", s.handleExecuteConnectionCommand)
+	mux.HandleFunc("GET /internal/connections/{connectionID}/filesystem", s.handleListConnectionFilesystem)
+	mux.HandleFunc("GET /internal/connections/{connectionID}/filesystem/download", s.handleDownloadConnectionFile)
+	mux.HandleFunc("GET /internal/connections/{connectionID}/filesystem/preview", s.handlePreviewConnectionFile)
+	mux.HandleFunc("POST /internal/connections/{connectionID}/filesystem/upload", s.handleUploadConnectionFile)
 	mux.Handle("GET /internal/ws/terminal/{stableID}", websocket.Handler(s.handleTerminalWebsocket))
 	return s.requireBearer(mux)
 }
