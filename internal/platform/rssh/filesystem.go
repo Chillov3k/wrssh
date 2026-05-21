@@ -67,6 +67,10 @@ func (s *Service) ListFilesOnConnection(connectionID, remotePath string) (FileLi
 	}
 	defer closeClient()
 
+	if isWindowsConnection(connectionID) && isVirtualWindowsRoot(remotePath) {
+		return listWindowsDrives(client), nil
+	}
+
 	cleanPath := CleanRemotePath(remotePath)
 	entries, err := client.ReadDir(cleanPath)
 	if err != nil {
@@ -299,6 +303,13 @@ func CleanRemotePath(remotePath string) string {
 		return "/"
 	}
 	value = strings.ReplaceAll(value, "\x00", "")
+	value = strings.ReplaceAll(value, "\\", "/")
+	if strings.HasPrefix(value, "/") && isWindowsDrivePath(strings.TrimPrefix(value, "/")) {
+		return cleanWindowsDrivePath(strings.TrimPrefix(value, "/"))
+	}
+	if isWindowsDrivePath(value) {
+		return cleanWindowsDrivePath(value)
+	}
 	if !strings.HasPrefix(value, "/") {
 		value = "/" + value
 	}
@@ -312,6 +323,12 @@ func CleanRemotePath(remotePath string) string {
 func JoinRemotePath(parent, name string) string {
 	parent = CleanRemotePath(parent)
 	name = strings.TrimSpace(name)
+	if isWindowsDrivePath(parent) {
+		if strings.HasSuffix(parent, "/") {
+			return cleanWindowsDrivePath(parent + name)
+		}
+		return cleanWindowsDrivePath(parent + "/" + name)
+	}
 	if parent == "/" {
 		return "/" + name
 	}
@@ -327,6 +344,70 @@ func cleanUploadFilename(filename string) (string, error) {
 		return "", fmt.Errorf("invalid filename")
 	}
 	return name, nil
+}
+
+func isVirtualWindowsRoot(remotePath string) bool {
+	value := strings.TrimSpace(strings.ReplaceAll(remotePath, "\\", "/"))
+	return value == "" || value == "/"
+}
+
+func isWindowsConnection(connectionID string) bool {
+	snapshot, ok := users.GetClientSnapshotByConnectionID(strings.TrimSpace(connectionID))
+	if !ok {
+		return false
+	}
+	return strings.Contains(strings.ToLower(snapshot.Version), "-windows_")
+}
+
+func listWindowsDrives(client *sftp.Client) FileList {
+	items := make([]FileEntry, 0, 2)
+	for drive := 'C'; drive <= 'Z'; drive++ {
+		drivePath := fmt.Sprintf("%c:/", drive)
+		info, err := client.Stat(drivePath)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		items = append(items, FileEntry{
+			Name:       drivePath,
+			Path:       drivePath,
+			Type:       "directory",
+			Size:       info.Size(),
+			Mode:       info.Mode().String(),
+			ModifiedAt: info.ModTime(),
+		})
+	}
+	if len(items) == 0 {
+		items = append(items, FileEntry{
+			Name: "C:/",
+			Path: "C:/",
+			Type: "directory",
+		})
+	}
+	return FileList{
+		Path:  "/",
+		Items: items,
+	}
+}
+
+func isWindowsDrivePath(value string) bool {
+	value = strings.TrimSpace(value)
+	return len(value) >= 2 &&
+		((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) &&
+		value[1] == ':'
+}
+
+func cleanWindowsDrivePath(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	drive := strings.ToUpper(value[:1])
+	rest := strings.TrimPrefix(value[2:], "/")
+	if rest == "" {
+		return drive + ":/"
+	}
+	cleaned := path.Clean("/" + rest)
+	if cleaned == "/" || cleaned == "." {
+		return drive + ":/"
+	}
+	return drive + ":" + cleaned
 }
 
 func readFilePreview(reader io.Reader) (string, int, bool, error) {

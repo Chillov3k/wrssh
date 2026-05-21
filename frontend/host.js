@@ -14,6 +14,7 @@ import {
   loadSystemOptions,
   makeClientRow,
   markSynced,
+  parsePlatform,
   resolveConnection,
   websocketURL,
   viewHref,
@@ -277,26 +278,19 @@ function openFilesystem() {
   pageState.filesystem.selectedDirectory = "/";
   pageState.filesystem.uploadDirectory = "/";
   pageState.filesystem.preview = null;
-  pageState.filesystem.nodes = new Map([
-    ["/", {
-      path: "/",
-      name: "/",
-      type: "directory",
-      expanded: false,
-      loaded: false,
-      loading: false,
-      error: "",
-      items: []
-    }]
-  ]);
-
   const row = currentRow(connection);
+  const root = filesystemRootNode(row);
+  pageState.filesystem.nodes = new Map([[root.path, root]]);
+
   elements.filesystemTitle.textContent = `${row.hostname || row.stableId} File System`;
   elements.filesystemMeta.textContent = `Connection ${row.connectionId || "-"} · ${row.remoteAddr || row.ip || "-"} · max upload/download ${MAX_FILE_TRANSFER_LABEL}`;
   setFilesystemMessage("", "");
   elements.fileSystemOverlay.classList.add("visible");
   elements.fileSystemOverlay.setAttribute("aria-hidden", "false");
   renderFilesystem();
+  if (root.virtual) {
+    void loadFilesystemDirectory(root.path);
+  }
 }
 
 function closeFilesystem() {
@@ -472,7 +466,7 @@ async function previewFilesystemFile(remotePath) {
 
 function triggerFilesystemUpload(directory) {
   const node = filesystemNode(directory);
-  if (!node || node.type !== "directory") {
+  if (!node || node.type !== "directory" || node.virtual) {
     return;
   }
   pageState.filesystem.uploadDirectory = node.path;
@@ -546,11 +540,57 @@ function filesystemNode(remotePath) {
 }
 
 function normalizeFilesystemPath(remotePath) {
-  const value = String(remotePath || "").trim();
+  const value = String(remotePath || "").trim().replaceAll("\\", "/");
   if (!value || value === ".") {
     return "/";
   }
+  if (value.startsWith("/") && isWindowsDrivePath(value.slice(1))) {
+    return normalizeWindowsDrivePath(value.slice(1));
+  }
+  if (isWindowsDrivePath(value)) {
+    return normalizeWindowsDrivePath(value);
+  }
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemRootNode(row) {
+  const os = parsePlatform(row?.version).os;
+  const windows = os === "windows";
+  return {
+    path: "/",
+    name: windows ? "Drives" : "/",
+    type: "directory",
+    virtual: windows,
+    expanded: windows,
+    loaded: false,
+    loading: false,
+    error: "",
+    items: []
+  };
+}
+
+function isWindowsDrivePath(value) {
+  return /^[A-Za-z]:/.test(String(value || "").trim());
+}
+
+function normalizeWindowsDrivePath(value) {
+  const raw = String(value || "").trim().replaceAll("\\", "/");
+  const drive = raw.slice(0, 1).toUpperCase();
+  const rest = raw.slice(2).replace(/^\/+/, "");
+  if (!rest) {
+    return `${drive}:/`;
+  }
+
+  const parts = rest.split("/").filter((part) => part && part !== ".");
+  const clean = [];
+  parts.forEach((part) => {
+    if (part === "..") {
+      clean.pop();
+      return;
+    }
+    clean.push(part);
+  });
+  return `${drive}:/${clean.join("/")}`;
 }
 
 function filesystemAPIPath(suffix = "", params = {}) {
@@ -571,9 +611,10 @@ function filesystemAPIPath(suffix = "", params = {}) {
 
 function renderFilesystem() {
   const root = filesystemNode("/");
-  elements.filesystemCurrentPath.textContent = pageState.filesystem.selectedDirectory || "/";
+  const selectedNode = filesystemNode(pageState.filesystem.selectedDirectory || "/");
+  elements.filesystemCurrentPath.textContent = filesystemDisplayPath(pageState.filesystem.selectedDirectory || "/");
   elements.refreshFilesystemButton.disabled = !root;
-  elements.uploadFilesystemButton.disabled = !root;
+  elements.uploadFilesystemButton.disabled = !selectedNode || selectedNode.virtual;
   elements.filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;
   renderFilesystemPreview();
 }
@@ -586,7 +627,10 @@ function renderFilesystemNode(node, depth) {
     : "";
   const buttonLabel = node.expanded ? "Collapse" : "Expand";
   const rowStyle = `--fs-depth:${depth}`;
-  const meta = filesystemMeta(node);
+  const meta = node.virtual ? "available drives" : filesystemMeta(node);
+  const canUpload = isDirectory && !node.virtual;
+  const iconClass = node.virtual ? "drives" : (isDirectory ? (node.path === "/" ? "root" : "folder") : "file");
+  const iconText = node.path === "/" && !node.virtual ? "/" : "";
   const expander = isDirectory
     ? `<button class="fs-expander" type="button" data-fs-toggle="${escapeAttribute(node.path)}" aria-label="${buttonLabel} ${escapeAttribute(node.name)}">${node.expanded ? "-" : "+"}</button>`
     : `<span class="fs-expander-spacer" aria-hidden="true"></span>`;
@@ -599,12 +643,12 @@ function renderFilesystemNode(node, depth) {
       <div class="fs-row ${selected ? "selected" : ""}" style="${rowStyle}">
         ${expander}
         <button class="fs-main" type="button" ${isDirectory ? `data-fs-select="${escapeAttribute(node.path)}"` : "disabled"}>
-          <span class="fs-icon ${isDirectory ? (node.path === "/" ? "root" : "folder") : "file"}">${node.path === "/" ? "/" : ""}</span>
+          <span class="fs-icon ${iconClass}">${iconText}</span>
           <span class="fs-name">${escapeHtml(node.name || node.path)}</span>
           <span class="fs-meta">${escapeHtml(meta)}</span>
         </button>
         <div class="fs-actions">
-          ${isDirectory ? `<button class="ghost-button fs-small-button" type="button" data-fs-upload="${escapeAttribute(node.path)}">Upload</button>` : ""}
+          ${canUpload ? `<button class="ghost-button fs-small-button" type="button" data-fs-upload="${escapeAttribute(node.path)}">Upload</button>` : ""}
           ${node.type === "file" ? `<button class="ghost-button fs-small-button" type="button" data-fs-preview="${escapeAttribute(node.path)}">Preview</button>` : ""}
           ${downloadAction}
         </div>
@@ -657,6 +701,15 @@ function filesystemMeta(node) {
     parts.push(formatDate(node.modifiedAt));
   }
   return parts.join(" · ");
+}
+
+function filesystemDisplayPath(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  const node = filesystemNode(path);
+  if (node?.virtual) {
+    return "Drives";
+  }
+  return path;
 }
 
 function formatFileSize(size) {
