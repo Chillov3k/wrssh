@@ -2054,7 +2054,8 @@ body.auth-pending .overlay {
 }
 
 .offline-delete-actions,
-.online-delete-actions {
+.online-delete-actions,
+.artifact-delete-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -2067,7 +2068,9 @@ body.auth-pending .overlay {
 .offline-delete-actions .danger-button,
 .offline-delete-actions .ghost-button,
 .online-delete-actions .danger-button,
-.online-delete-actions .ghost-button {
+.online-delete-actions .ghost-button,
+.artifact-delete-actions .danger-button,
+.artifact-delete-actions .ghost-button {
   min-height: 42px;
 }
 

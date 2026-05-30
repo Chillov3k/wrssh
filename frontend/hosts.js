@@ -304,7 +304,7 @@ function rowMatchesOS(row, filter) {
 function renderRow(row, jumpTarget) {
   const command = hostCommandTemplates(row.host, row.connection, jumpTarget).ssh;
   const href = hostPageHref(row.stableId, row.connectionId, pageState.ctx?.project || "");
-  const deleteLabel = row.connected ? "Delete Client" : "Delete Offline Client";
+  const deleteLabel = row.connected ? "Delete Client" : "Delete offline client";
   const selected = pageState.selectedRows.has(row.key);
   const running = pageState.runningRows.has(row.key);
   const execution = pageState.commandResults.get(row.key);
@@ -345,7 +345,7 @@ function renderRow(row, jumpTarget) {
         <a class="action-button action-link host-row-action" href="${escapeAttribute(href)}">Open Shell</a>
       </div>
       <div class="client-toolbar-slot client-toolbar-slot-id">
-        <button class="ghost-button host-row-action" data-copy-command="${escapeAttribute(command)}">Copy Connect Command</button>
+        <button class="ghost-button host-row-action" data-copy-command="${escapeAttribute(command)}">Copy connect command</button>
       </div>
       <div class="client-toolbar-slot client-toolbar-slot-host">
         <button class="danger-button host-row-action" data-delete-host="${escapeAttribute(row.stableId)}" data-hostname="${escapeAttribute(row.hostname)}" data-connected="${row.connected ? "true" : "false"}">${escapeHtml(deleteLabel)}</button>

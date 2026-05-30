@@ -479,7 +479,7 @@ func (m *Multiplexer) determineProtocol(conn net.Conn) (net.Conn, protocols.Type
 
 	if isHttp(header) {
 
-		if bytes.HasPrefix(header, []byte("GET /ws")) {
+		if isWebsocketRequest(header) {
 			return c, protocols.Websockets, nil
 		}
 
@@ -492,6 +492,22 @@ func (m *Multiplexer) determineProtocol(conn net.Conn) (net.Conn, protocols.Type
 
 	conn.Close()
 	return nil, "", errors.New("unknown protocol: " + string(header[:n]))
+}
+
+func isWebsocketRequest(header []byte) bool {
+	const websocketPath = "GET /ws"
+	if !bytes.HasPrefix(header, []byte(websocketPath)) {
+		return false
+	}
+	if len(header) == len(websocketPath) {
+		return true
+	}
+	switch header[len(websocketPath)] {
+	case ' ', '?', '\t':
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Multiplexer) getProtoListener(proto protocols.Type) net.Listener {

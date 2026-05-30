@@ -10,16 +10,22 @@ import {
 } from "./shared.js";
 
 const artifactList = document.getElementById("artifactList");
+const artifactDeleteOverlay = document.getElementById("artifactDeleteOverlay");
+const artifactDeleteMessage = document.getElementById("artifactDeleteMessage");
+const artifactDeleteError = document.getElementById("artifactDeleteError");
+const confirmArtifactDeleteButton = document.getElementById("confirmArtifactDeleteButton");
+const cancelArtifactDeleteButton = document.getElementById("cancelArtifactDeleteButton");
 
 const pageState = {
   artifacts: [],
-  ctx: null
+  ctx: null,
+  pendingArtifactDelete: null
 };
 
 artifactList.addEventListener("click", async (event) => {
   const deleteButton = event.target.closest("[data-delete-artifact]");
   if (deleteButton) {
-    await deleteArtifact(deleteButton);
+    openArtifactDeleteModal(deleteButton.dataset.deleteArtifact || "");
     return;
   }
 
@@ -29,6 +35,20 @@ artifactList.addEventListener("click", async (event) => {
   }
 
   window.location.href = row.dataset.openArtifact;
+});
+
+artifactDeleteOverlay.addEventListener("click", (event) => {
+  if (event.target === artifactDeleteOverlay) {
+    closeArtifactDeleteModal();
+  }
+});
+cancelArtifactDeleteButton.addEventListener("click", () => closeArtifactDeleteModal());
+confirmArtifactDeleteButton.addEventListener("click", deleteArtifactFromModal);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && artifactDeleteOverlay.classList.contains("visible")) {
+    closeArtifactDeleteModal();
+  }
 });
 
 initPage({
@@ -100,30 +120,65 @@ function renderRow(artifact) {
       </div>
       <div class="client-cell client-actions">
         <a class="action-button action-link" href="${escapeAttribute(href)}">Open</a>
-        <button class="danger-button" data-delete-artifact="${escapeAttribute(artifact.urlPath)}">Delete</button>
+        <button class="danger-button" data-delete-artifact="${escapeAttribute(artifact.urlPath)}">Delete agent</button>
       </div>
     </article>
   `;
 }
 
-async function deleteArtifact(button) {
-  const urlPath = button.dataset.deleteArtifact || "";
-  if (!window.confirm(`Delete artifact ${urlPath}?`)) {
+function openArtifactDeleteModal(urlPath) {
+  urlPath = String(urlPath || "").trim();
+  if (!urlPath) {
     return;
   }
 
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = "Deleting...";
+  pageState.pendingArtifactDelete = { urlPath };
+  artifactDeleteError.textContent = "";
+  artifactDeleteMessage.textContent = `Delete agent "${urlPath}" from project ${pageState.ctx?.project || "-"}?`;
+  confirmArtifactDeleteButton.textContent = "Delete this agent";
+  confirmArtifactDeleteButton.disabled = false;
+  cancelArtifactDeleteButton.disabled = false;
+  artifactDeleteOverlay.classList.add("visible");
+  confirmArtifactDeleteButton.focus();
+}
+
+function closeArtifactDeleteModal(force = false) {
+  if (!artifactDeleteOverlay.classList.contains("visible")) {
+    return;
+  }
+  if (!force && cancelArtifactDeleteButton.disabled) {
+    return;
+  }
+
+  pageState.pendingArtifactDelete = null;
+  artifactDeleteOverlay.classList.remove("visible");
+  artifactDeleteError.textContent = "";
+  confirmArtifactDeleteButton.textContent = "Delete this agent";
+  confirmArtifactDeleteButton.disabled = false;
+  cancelArtifactDeleteButton.disabled = false;
+}
+
+async function deleteArtifactFromModal() {
+  const urlPath = pageState.pendingArtifactDelete?.urlPath || "";
+  if (!urlPath) {
+    return;
+  }
+
+  artifactDeleteError.textContent = "";
+  confirmArtifactDeleteButton.disabled = true;
+  cancelArtifactDeleteButton.disabled = true;
+  confirmArtifactDeleteButton.textContent = "Deleting Agent...";
 
   try {
     await api(`/api/artifacts/${encodeURIComponent(urlPath)}?project=${encodeURIComponent(pageState.ctx?.project || "")}`, {
       method: "DELETE"
     });
+    closeArtifactDeleteModal(true);
     await refreshArtifacts(pageState.ctx);
   } catch (error) {
-    button.disabled = false;
-    button.textContent = original;
-    window.alert(error.message);
+    artifactDeleteError.textContent = error.message;
+    confirmArtifactDeleteButton.textContent = "Delete this agent";
+    confirmArtifactDeleteButton.disabled = false;
+    cancelArtifactDeleteButton.disabled = false;
   }
 }

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
+	"github.com/NHAS/reverse_ssh/internal/platform/auth"
 	"github.com/NHAS/reverse_ssh/internal/platform/store"
 	"github.com/NHAS/reverse_ssh/internal/platform/userkeys"
 )
@@ -100,7 +100,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updated = rotated
-		if err := s.auth.SetSessionCookie(w, updated.ID, updated.SessionVersion, 12*time.Hour, requestIsSecure(r)); err != nil {
+		if err := s.auth.SetSessionCookie(w, updated.ID, updated.SessionVersion, auth.SessionTTL, requestIsSecure(r)); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

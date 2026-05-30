@@ -42,7 +42,6 @@
     <main class="content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Builder</p>
           <h2 id="viewTitle">Builds</h2>
           <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
         </div>
@@ -53,8 +52,7 @@
         <div id="artifactBuilderPanel" class="panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Builder</p>
-              <h3>Create Client Artifact</h3>
+              <h3>CREATE CLIENT ARTIFACT</h3>
             </div>
           </div>
           <form id="artifactForm" class="artifact-form">
@@ -95,7 +93,6 @@
                 <option value="wss">wss</option>
                 <option value="http">http</option>
                 <option value="https">https</option>
-                <option value="stdio">stdio</option>
               </select>
             </label>
             <label class="field-stack field-wide">
@@ -111,6 +108,7 @@
                 <label class="check-row build-check-row"><input name="lzma" type="checkbox"><span class="build-check-label">LZMA with UPX <span class="help-badge" data-build-help="lzma" aria-hidden="true">?</span></span></label>
                 <label class="check-row build-check-row"><input name="rawDownload" type="checkbox"><span class="build-check-label">Raw download command <span class="help-badge" data-build-help="raw-download" aria-hidden="true">?</span></span></label>
                 <label class="check-row build-check-row"><input name="useHostHeader" type="checkbox"><span class="build-check-label">Use Host header <span class="help-badge" data-build-help="use-host-header" aria-hidden="true">?</span></span></label>
+                <label class="check-row build-check-row"><input name="noHistorySave" type="checkbox"><span class="build-check-label">Stealth mode <span class="help-badge" data-build-help="no-history-save" aria-hidden="true">?</span></span></label>
               </div>
             </details>
             <button class="action-button" type="submit">Create Artifact</button>

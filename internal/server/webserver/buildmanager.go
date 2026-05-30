@@ -52,6 +52,7 @@ type BuildConfig struct {
 	DisableLibC   bool
 	RawDownload   bool
 	UseHostHeader bool
+	NoHistorySave bool
 
 	WorkingDirectory string
 
@@ -172,7 +173,7 @@ func Build(config BuildConfig) (string, error) {
 		return "", err
 	}
 
-	buildArguments = append(buildArguments, fmt.Sprintf("-ldflags=-s -w -X main.logLevel=%s -X main.destination=%s -X main.fingerprint=%s -X main.proxy=%s -X main.customSNI=%s -X main.useHostKerberos=%t -X main.ntlmProxyCreds=%s -X main.versionString=%s -X github.com/NHAS/reverse_ssh/internal.Version=%s -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=%s", config.LogLevel, config.ConnectBackAdress, config.Fingerprint, config.Proxy, config.SNI, config.UseKerberosAuth, config.NTLMProxyCreds, strings.TrimSpace(config.VersionString), strings.TrimSpace(f.Version), embeddedPrivateKeyB64))
+	buildArguments = append(buildArguments, fmt.Sprintf("-ldflags=-s -w -X main.logLevel=%s -X main.destination=%s -X main.fingerprint=%s -X main.proxy=%s -X main.customSNI=%s -X main.useHostKerberos=%t -X main.noHistorySave=%t -X main.ntlmProxyCreds=%s -X main.versionString=%s -X github.com/NHAS/reverse_ssh/internal.Version=%s -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=%s", config.LogLevel, config.ConnectBackAdress, config.Fingerprint, config.Proxy, config.SNI, config.UseKerberosAuth, config.NoHistorySave, config.NTLMProxyCreds, strings.TrimSpace(config.VersionString), strings.TrimSpace(f.Version), embeddedPrivateKeyB64))
 	buildArguments = append(buildArguments, "-o", f.FilePath, filepath.Join(projectRoot, "/cmd/client"))
 
 	cmd := exec.Command(buildTool, buildArguments...)

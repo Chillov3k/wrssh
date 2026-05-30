@@ -307,6 +307,7 @@ type Settings struct {
 	SNI         string
 
 	ProxyUseHostKerberos bool
+	NoHistorySave        bool
 
 	VersionString string
 
@@ -335,6 +336,7 @@ func (s *Settings) SetNTLMProxyCreds(creds string) error {
 }
 
 func Run(settings *Settings) {
+	handlers.SetNoHistorySave(settings.NoHistorySave)
 
 	sshPriv, sysinfoError := keys.GetPrivateKey()
 	if sysinfoError != nil {

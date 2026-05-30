@@ -241,10 +241,10 @@ function renderHost() {
   elements.terminalTitle.textContent = `${displayName} · ${currentTarget}`;
 
   elements.commandTemplates.innerHTML = [
-    ["Full Shell", commands.ssh],
+    ["Full shell", commands.ssh],
     ["SCP", commands.scp],
     ["Dynamic SOCKS", commands.dynamicSocks],
-    ["Remote Forward", commands.remoteForward]
+    ["Remote forward", commands.remoteForward]
   ].map(([label, command]) => `
     <article class="command-card">
       <strong>${escapeHtml(label)}</strong>

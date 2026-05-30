@@ -77,7 +77,7 @@ func LoadConfig() (Config, error) {
 		TLSKeyPath:            strings.TrimSpace(env("RSSH_TLS_KEY_PATH", "")),
 		Insecure:              false,
 		EnableDownloads:       true,
-		EnableTLS:             envBool("RSSH_TLS", false),
+		EnableTLS:             envBool("RSSH_TLS", true),
 		OpenProxy:             false,
 		Timeout:               defaultRuntimeRSSHTimeout,
 		ReadHeaderTimeoutSec:  defaultReadHeaderTimeoutSec,

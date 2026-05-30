@@ -42,7 +42,7 @@ func Fork(settings *client.Settings, pretendArgv ...string) error {
 		return fork(path, &syscall.SysProcAttr{
 			HideWindow:    true,
 			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
-		}, pretendArgv...)
+		}, forkOptions{DiscardIO: settings != nil && settings.NoHistorySave}, pretendArgv...)
 	}
 
 	runService("rssh", settings)

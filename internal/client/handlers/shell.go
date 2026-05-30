@@ -131,13 +131,15 @@ func runCommandWithPty(argv string, command string, args []string, ptyReq *inter
 		return
 	}
 
+	args = noHistoryShellArgs(command, args)
+
 	// Fire up a shell for this session
 	shell := exec.Command(command, args...)
 	if len(argv) != 0 {
 		shell.Args[0] = argv
 	}
 
-	shell.Env = os.Environ()
+	shell.Env = noHistoryEnv(os.Environ())
 
 	close := func() {
 		connection.Close()
@@ -163,6 +165,9 @@ func runCommandWithPty(argv string, command string, args []string, ptyReq *inter
 		log.Info("Could not start pty (%s)", err)
 		close()
 		return
+	}
+	if startup := noHistoryStartupCommand(command); startup != "" {
+		_, _ = shellIO.Write([]byte(startup))
 	}
 
 	// pipe session to bash and visa-versa

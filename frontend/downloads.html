@@ -42,7 +42,6 @@
     <main class="content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Downloads</p>
           <h2 id="viewTitle">Downloads</h2>
           <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
         </div>
@@ -53,8 +52,7 @@
         <div class="panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Artifacts</p>
-              <h3>Client Downloads</h3>
+              <h3>CLIENT DOWNLOADS</h3>
             </div>
           </div>
           <div id="artifactList" class="artifact-list"></div>
@@ -79,6 +77,19 @@
         <button class="action-button" type="submit">Login</button>
       </form>
       <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="artifactDeleteOverlay" class="overlay">
+    <div class="overlay-card offline-delete-card">
+      <p class="eyebrow">Agent artifact</p>
+      <h2>Delete agent</h2>
+      <p id="artifactDeleteMessage" class="muted"></p>
+      <div class="artifact-delete-actions">
+        <button id="confirmArtifactDeleteButton" class="danger-button" type="button">Delete this agent</button>
+        <button id="cancelArtifactDeleteButton" class="ghost-button" type="button">Cancel</button>
+      </div>
+      <p id="artifactDeleteError" class="error-text"></p>
     </div>
   </div>
 

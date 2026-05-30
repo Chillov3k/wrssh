@@ -178,6 +178,7 @@ func runCommand(argv string, command string, args []string, connection ssh.Chann
 	if len(argv) != 0 {
 		cmd.Args[0] = argv
 	}
+	cmd.Env = noHistoryEnv(os.Environ())
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

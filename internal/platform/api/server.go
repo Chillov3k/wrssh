@@ -156,7 +156,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginGuard.reset(loginKey)
 
-	if err := s.auth.SetSessionCookie(w, user.ID, user.SessionVersion, 12*time.Hour, requestIsSecure(r)); err != nil {
+	if err := s.auth.SetSessionCookie(w, user.ID, user.SessionVersion, auth.SessionTTL, requestIsSecure(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -438,6 +438,18 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	useRuntime, err := s.projectUsesRemoteRuntime(projectName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if useRuntime {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items": artifacts,
+		})
+		return
+	}
+
 	assignments, err := s.store.ListArtifactProjectAssignments()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -454,7 +466,8 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	if !requireProjectAccess(w, user, requestedProject(r)) {
+	projectName := requestedProject(r)
+	if !requireProjectAccess(w, user, projectName) {
 		return
 	}
 
@@ -463,6 +476,22 @@ func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "artifact path is required")
 		return
 	}
+
+	useRuntime, err := s.projectUsesRemoteRuntime(projectName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if useRuntime {
+		artifact, err := s.runtimes.GetArtifact(r.Context(), projectName, urlPath)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, artifact)
+		return
+	}
+
 	assignments, err := s.store.ListArtifactProjectAssignments()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -472,23 +501,12 @@ func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "project access denied")
 		return
 	}
-	if !artifactBelongsToProject(urlPath, requestedProject(r), assignments) {
+	if !artifactBelongsToProject(urlPath, projectName, assignments) {
 		writeError(w, http.StatusNotFound, "artifact not found")
 		return
 	}
 
-	useRuntime, err := s.projectUsesRemoteRuntime(requestedProject(r))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	var artifact rssh.Artifact
-	if useRuntime {
-		artifact, err = s.runtimes.GetArtifact(r.Context(), requestedProject(r), urlPath)
-	} else {
-		artifact, err = s.rsshService.GetArtifact(urlPath)
-	}
+	artifact, err := s.rsshService.GetArtifact(urlPath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -521,6 +539,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		LZMA             bool   `json:"lzma"`
 		DisableLibC      bool   `json:"disableLibC"`
 		UseHostHeader    bool   `json:"useHostHeader"`
+		NoHistorySave    bool   `json:"noHistorySave"`
 		RawDownload      bool   `json:"rawDownload"`
 		UseKerberos      bool   `json:"useKerberos"`
 		VersionString    string `json:"versionString"`
@@ -587,6 +606,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		DisableLibC:       request.DisableLibC,
 		RawDownload:       request.RawDownload,
 		UseHostHeader:     request.UseHostHeader,
+		NoHistorySave:     request.NoHistorySave,
 		WorkingDirectory:  strings.TrimSpace(request.WorkingDirectory),
 		NTLMProxyCreds:    strings.TrimSpace(request.NTLMProxyCreds),
 		VersionString:     strings.TrimSpace(request.VersionString),
@@ -631,7 +651,8 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	if !requireProjectAccess(w, user, requestedProject(r)) {
+	projectName := requestedProject(r)
+	if !requireProjectAccess(w, user, projectName) {
 		return
 	}
 
@@ -640,6 +661,25 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "artifact path is required")
 		return
 	}
+
+	useRuntime, err := s.projectUsesRemoteRuntime(projectName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if useRuntime {
+		if err := s.runtimes.DeleteArtifact(r.Context(), projectName, urlPath); err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		if err := s.deleteArtifactProjectAssignmentIfOwned(urlPath, projectName); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+		return
+	}
+
 	assignments, err := s.store.ListArtifactProjectAssignments()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -649,23 +689,12 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "project access denied")
 		return
 	}
-	if !artifactBelongsToProject(urlPath, requestedProject(r), assignments) {
+	if !artifactBelongsToProject(urlPath, projectName, assignments) {
 		writeError(w, http.StatusNotFound, "artifact not found")
 		return
 	}
 
-	useRuntime, err := s.projectUsesRemoteRuntime(requestedProject(r))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if useRuntime {
-		err = s.runtimes.DeleteArtifact(r.Context(), requestedProject(r), urlPath)
-	} else {
-		err = s.rsshService.DeleteArtifact(urlPath)
-	}
-	if err != nil {
+	if err := s.rsshService.DeleteArtifact(urlPath); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -675,6 +704,17 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) deleteArtifactProjectAssignmentIfOwned(urlPath, projectName string) error {
+	assignments, err := s.store.ListArtifactProjectAssignments()
+	if err != nil {
+		return err
+	}
+	if !artifactBelongsToProject(urlPath, projectName, assignments) {
+		return nil
+	}
+	return s.store.DeleteArtifactProject(urlPath)
 }
 
 func (s *Server) authorizedHost(r *http.Request) (store.HostRecord, bool) {

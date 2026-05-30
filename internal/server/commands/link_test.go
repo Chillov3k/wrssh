@@ -28,4 +28,8 @@ func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
 	if help["use-host-header"] != "Use HTTP Host header as callback address when generating download template (add .sh to your download urls and find out)" {
 		t.Fatalf("unexpected use-host-header help: %q", help["use-host-header"])
 	}
+
+	if help["no-history-save"] != "Detach startup and reduce shell history persistence for commands run through this agent" {
+		t.Fatalf("unexpected no-history-save help: %q", help["no-history-save"])
+	}
 }
