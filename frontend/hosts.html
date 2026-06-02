@@ -7,7 +7,7 @@
   <script src="theme-init.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body class="auth-pending">
+<body class="auth-pending hosts-page">
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-block">
@@ -53,34 +53,38 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">Clients</p>
-              <h3>Managed Hosts</h3>
+              <h3>Managed hosts</h3>
             </div>
-            <div class="hosts-toolbar-controls">
+          </div>
+          <div id="hostTable" class="table-shell"></div>
+          <div class="hosts-console-panel">
+            <div class="hosts-console-head">
+              <div>
+                <p class="eyebrow">Console</p>
+                <h4>Host actions</h4>
+              </div>
+              <span id="bulkSelectionSummary" class="chip">0 selected</span>
+            </div>
+            <div class="hosts-console-grid">
               <div id="osFilter" class="segmented-filter" aria-label="Filter hosts by operating system">
                 <button class="segmented-filter-button is-active" type="button" data-os-filter="all">All</button>
                 <button class="segmented-filter-button" type="button" data-os-filter="linux">Linux</button>
                 <button class="segmented-filter-button" type="button" data-os-filter="windows">Windows</button>
                 <button class="segmented-filter-button" type="button" data-os-filter="darwin">macOS</button>
               </div>
-              <input id="hostSearch" class="search-input search-input-wide" type="search" placeholder="Filter by connection id, hostname, tag or IP">
-            </div>
-          </div>
-          <div class="bulk-exec-panel">
-            <div class="bulk-exec-form">
+              <input id="hostSearch" class="search-input hosts-console-search" type="search" placeholder="Filter by ID, hostname, tag or IP">
               <label class="field-stack bulk-command-field">
-                <span>Run command on selected hosts</span>
+                <span>Run command</span>
                 <input id="bulkCommandInput" class="search-input" type="text" placeholder="ip a">
               </label>
               <div class="bulk-exec-actions">
-                <span id="bulkSelectionSummary" class="chip">0 selected</span>
-                <button id="selectVisibleHostsButton" class="ghost-button" type="button">Select Visible</button>
+                <button id="selectVisibleHostsButton" class="ghost-button" type="button">Select visible</button>
                 <button id="clearSelectedHostsButton" class="ghost-button" type="button">Clear</button>
-                <button id="runSelectedHostsButton" class="action-button" type="button">Run On Selected</button>
+                <button id="runSelectedHostsButton" class="action-button" type="button">Run selected</button>
               </div>
             </div>
             <p id="bulkExecOutput" class="error-text bulk-exec-output"></p>
           </div>
-          <div id="hostTable" class="table-shell"></div>
         </div>
       </section>
     </main>
@@ -89,7 +93,7 @@
   <div id="loginOverlay" class="overlay">
     <div class="overlay-card">
       <p class="eyebrow">Authenticate</p>
-      <h2>Sign In To RSSH Admin</h2>
+      <h2>Sign in to RSSH admin</h2>
       <form id="loginForm" class="login-form">
         <label class="field-stack">
           <span>Username</span>
@@ -107,12 +111,12 @@
 
   <div id="offlineDeleteOverlay" class="overlay">
     <div class="overlay-card offline-delete-card">
-      <p class="eyebrow">Offline Client</p>
+      <p class="eyebrow">Offline client</p>
       <h2>Delete offline client</h2>
       <p id="offlineDeleteMessage" class="muted"></p>
       <div class="offline-delete-actions">
-        <button id="deleteOnlyOfflineButton" class="danger-button" type="button">Delete Only This Client</button>
-        <button id="deleteAllOfflineButton" class="danger-button danger-button-muted" type="button">Delete All Offline Clients</button>
+        <button id="deleteOnlyOfflineButton" class="danger-button" type="button">Delete only this client</button>
+        <button id="deleteAllOfflineButton" class="danger-button danger-button-muted" type="button">Delete all offline clients</button>
         <button id="cancelOfflineDeleteButton" class="ghost-button" type="button">Cancel</button>
       </div>
       <p id="offlineDeleteError" class="error-text"></p>
@@ -121,22 +125,30 @@
 
   <div id="onlineDeleteOverlay" class="overlay">
     <div class="overlay-card offline-delete-card">
-      <p class="eyebrow">Online Client</p>
-      <h2>Delete Online Client</h2>
+      <p class="eyebrow">Online client</p>
+      <h2>Delete online client</h2>
       <p id="onlineDeleteMessage" class="muted"></p>
       <div class="online-delete-actions">
-        <button id="confirmOnlineDeleteButton" class="danger-button" type="button">Delete Client</button>
+        <button id="confirmOnlineDeleteButton" class="danger-button" type="button">Delete client</button>
         <button id="cancelOnlineDeleteButton" class="ghost-button" type="button">Cancel</button>
       </div>
       <p id="onlineDeleteError" class="error-text"></p>
     </div>
   </div>
 
+  <div id="hostContextMenu" class="host-context-menu hidden" role="menu" aria-hidden="true">
+    <button type="button" data-context-action="open">Open host</button>
+    <button type="button" data-context-action="filesystem">Open file system</button>
+    <button type="button" data-context-action="copy">Copy connect command</button>
+    <button type="button" data-context-action="select">Toggle selection</button>
+    <button class="danger" type="button" data-context-action="delete">Delete client</button>
+  </div>
+
   <div id="fileSystemOverlay" class="overlay filesystem-overlay" aria-hidden="true">
     <div class="filesystem-card">
       <div class="filesystem-head">
         <div>
-          <p class="eyebrow">Remote File System</p>
+          <p class="eyebrow">Remote file system</p>
           <h2 id="filesystemTitle">Open file system</h2>
           <p id="filesystemMeta" class="muted">Browse the selected live client over SFTP. Max upload/download 500 MiB.</p>
         </div>
@@ -145,7 +157,7 @@
 
       <div class="filesystem-toolbar">
         <div>
-          <span class="command-label">Selected Directory</span>
+          <span class="command-label">Selected directory</span>
           <strong id="filesystemCurrentPath">/</strong>
         </div>
         <div class="inline-actions">
@@ -162,7 +174,7 @@
             <span class="command-label">Preview</span>
             <strong id="filesystemPreviewPath">-</strong>
           </div>
-          <button id="closeFilesystemPreviewButton" class="ghost-button fs-small-button" type="button">Close Preview</button>
+          <button id="closeFilesystemPreviewButton" class="ghost-button fs-small-button" type="button">Close preview</button>
         </div>
         <pre id="filesystemPreviewContent" class="filesystem-preview-content"></pre>
       </div>

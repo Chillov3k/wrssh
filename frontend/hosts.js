@@ -3,6 +3,7 @@ import {
   appPath,
   buildJumpTarget,
   copyFromButton,
+  copyText,
   escapeAttribute,
   escapeHtml,
   formatDate,
@@ -53,6 +54,7 @@ const filesystemPreviewPath = document.getElementById("filesystemPreviewPath");
 const filesystemPreviewContent = document.getElementById("filesystemPreviewContent");
 const closeFilesystemPreviewButton = document.getElementById("closeFilesystemPreviewButton");
 const filesystemUploadInput = document.getElementById("filesystemUploadInput");
+const hostContextMenu = document.getElementById("hostContextMenu");
 
 const OS_FILTERS = [
   { key: "all", label: "All" },
@@ -74,6 +76,7 @@ const pageState = {
   commandResults: new Map(),
   pendingOfflineDelete: null,
   pendingOnlineDelete: null,
+  contextRowKey: "",
   filesystem: {
     target: null,
     selectedDirectory: "/",
@@ -145,6 +148,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && fileSystemOverlay.classList.contains("visible")) {
     closeFilesystem();
   }
+  if (event.key === "Escape" && !hostContextMenu.classList.contains("hidden")) {
+    closeHostContextMenu();
+  }
 });
 
 hostTable.addEventListener("click", async (event) => {
@@ -189,6 +195,32 @@ hostTable.addEventListener("click", async (event) => {
   window.location.href = row.dataset.openShell;
 });
 
+hostTable.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest("[data-host-row-key]");
+  if (!row) {
+    return;
+  }
+  event.preventDefault();
+  openHostContextMenu(row.dataset.hostRowKey || "", event.clientX, event.clientY);
+});
+
+hostContextMenu.addEventListener("click", async (event) => {
+  const actionButton = event.target.closest("[data-context-action]");
+  if (!actionButton) {
+    return;
+  }
+  await handleHostContextAction(actionButton.dataset.contextAction || "");
+});
+
+document.addEventListener("click", (event) => {
+  if (!hostContextMenu.classList.contains("hidden") && !event.target.closest("#hostContextMenu")) {
+    closeHostContextMenu();
+  }
+});
+
+window.addEventListener("resize", closeHostContextMenu);
+window.addEventListener("scroll", closeHostContextMenu, true);
+
 initPage({
   title: "Hosts",
   requireProject: true,
@@ -222,35 +254,29 @@ function renderHosts() {
     return;
   }
 
-  const jumpTarget = buildJumpTarget(pageState.systemOptions, rows[0]?.host || null, pageState.ctx?.user);
   const selectedVisibleCount = rows.filter((row) => pageState.selectedRows.has(row.key)).length;
 
   hostTable.innerHTML = `
-    <div class="table-toolbar">
-      <div>
-        <p class="eyebrow">Client Inventory</p>
-        <h3>${rows.length} client${rows.length === 1 ? "" : "s"}</h3>
-      </div>
-      <div class="inline-actions">
-        <span class="chip">${rows.filter((row) => row.connected).length} online</span>
-        <span class="chip">${rows.filter((row) => !row.connected).length} offline</span>
-      </div>
+    <div class="hosts-strip-toolbar">
+      <span>${rows.length} client${rows.length === 1 ? "" : "s"}</span>
+      <span>${rows.filter((row) => row.connected).length} online</span>
+      <span>${rows.filter((row) => !row.connected).length} offline</span>
     </div>
-    <div class="table-scroll">
-      <div class="client-table client-table-hosts">
-        <div class="client-table-head client-table-head-hosts">
+    <div class="hosts-list-shell">
+      <div class="hosts-list">
+        <div class="hosts-list-head">
           <span class="client-select-head">
             <input type="checkbox" class="row-selector" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
           </span>
-          <span>ID</span>
+          <span>OS</span>
+          <span>IP</span>
+          <span>User</span>
           <span>Host</span>
-          <span>Network</span>
-          <span>Platform</span>
-          <span>Timestamps</span>
+          <span>Session time</span>
           <span>Status</span>
         </div>
-        <div class="client-table-body">
-          ${rows.map((row) => renderRow(row, jumpTarget)).join("")}
+        <div class="hosts-list-body">
+          ${rows.map((row) => renderRow(row)).join("")}
         </div>
       </div>
     </div>
@@ -301,56 +327,97 @@ function rowMatchesOS(row, filter) {
   return parsePlatform(row.version).os === filter;
 }
 
-function renderRow(row, jumpTarget) {
-  const command = hostCommandTemplates(row.host, row.connection, jumpTarget).ssh;
+function osIconMarkup(os) {
+  switch (os) {
+  case "windows":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 4.4 10.8 3v8.1H3V4.4Zm9.2-1.7L21 1.2v9.9h-8.8V2.7ZM3 12.9h7.8V21L3 19.6v-6.7Zm9.2 0H21v9.9l-8.8-1.5v-8.4Z"></path>
+      </svg>
+    `;
+  case "linux":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2.6c-2.5 0-4.2 2.1-4.2 5.1 0 1.2-.4 2.3-1.1 3.5-.8 1.2-1.6 2.6-1.6 4.8 0 3.2 2.5 5.4 6.9 5.4s6.9-2.2 6.9-5.4c0-2.1-.8-3.6-1.6-4.8-.7-1.1-1.1-2.2-1.1-3.5 0-3-1.7-5.1-4.2-5.1Zm-1.7 4.7c.6 0 1 .5 1 1.1s-.4 1.1-1 1.1-1-.5-1-1.1.4-1.1 1-1.1Zm3.4 0c.6 0 1 .5 1 1.1s-.4 1.1-1 1.1-1-.5-1-1.1.4-1.1 1-1.1Zm-1.7 5 3.3 1.4-3.3 1.4-3.3-1.4 3.3-1.4Z"></path>
+      </svg>
+    `;
+  case "darwin":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M16.7 2.4c.1 1.2-.4 2.3-1.2 3.2-.8.9-1.9 1.5-3 1.4-.1-1.1.4-2.2 1.2-3 .8-.9 2-1.5 3-1.6ZM20.2 17.4c-.5 1.2-.8 1.7-1.5 2.8-.9 1.3-2.2 2.9-3.8 2.9-1.4 0-1.8-.9-3.7-.9s-2.3.9-3.7.9c-1.6 0-2.8-1.5-3.7-2.8-2.6-3.8-2.9-8.3-1.3-10.7 1.1-1.7 2.9-2.7 4.6-2.7 1.7 0 2.8.9 4.2.9 1.4 0 2.2-.9 4.2-.9 1.5 0 3 .8 4.1 2.1-3.6 2-3 7.1.6 8.4Z"></path>
+      </svg>
+    `;
+  default:
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 14.5a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4Zm1.1-4.3h-2c0-2.8 3-2.8 3-4.6 0-1-.8-1.7-2-1.7-1.1 0-2 .6-2.7 1.5L8 7.1c1-1.4 2.4-2.2 4.2-2.2 2.4 0 4.1 1.4 4.1 3.5 0 2.8-3.2 3-3.2 4.8Z"></path>
+      </svg>
+    `;
+  }
+}
+
+function splitHostIdentity(hostname) {
+  const value = String(hostname || "-").trim() || "-";
+  const dot = value.indexOf(".");
+  if (dot > 0 && dot < value.length - 1) {
+    return {
+      user: value.slice(0, dot),
+      host: value.slice(dot + 1)
+    };
+  }
+
+  return {
+    user: "-",
+    host: value
+  };
+}
+
+function compactDate(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function renderRow(row) {
   const href = hostPageHref(row.stableId, row.connectionId, pageState.ctx?.project || "");
-  const deleteLabel = row.connected ? "Delete Client" : "Delete offline client";
   const selected = pageState.selectedRows.has(row.key);
   const running = pageState.runningRows.has(row.key);
   const execution = pageState.commandResults.get(row.key);
+  const platform = parsePlatform(row.version);
+  const identity = splitHostIdentity(row.hostname);
+  const sessionTime = row.host?.lastConnectionAt || row.lastActivityAt || row.dateAdded;
 
   return `
-    <article class="client-row client-row-hosts" data-open-shell="${escapeAttribute(href)}">
-      <div class="client-cell client-cell-select">
+    <article class="hosts-list-row ${row.connected ? "is-online" : "is-offline"} ${selected ? "is-selected" : ""}" data-host-row-key="${escapeAttribute(row.key)}" data-open-shell="${escapeAttribute(href)}" title="Right-click for host actions">
+      <div class="hosts-list-cell hosts-select-cell">
         <input type="checkbox" class="row-selector" aria-label="Select host ${escapeAttribute(row.hostname)}" data-select-row="${escapeAttribute(row.key)}" ${selected ? "checked" : ""}>
       </div>
-      <div class="client-cell client-cell-code">
-        <strong class="table-code-primary">${escapeHtml(row.connectionId || row.hostId)}</strong>
-        <span class="muted table-code-secondary">${escapeHtml(row.stableId)}</span>
+      <div class="hosts-list-cell hosts-os-cell">
+        <span class="os-icon os-${escapeAttribute(platform.os || "unknown")}" title="${escapeAttribute(platform.label)}">${osIconMarkup(platform.os)}</span>
       </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.hostname)}</strong>
-        <span class="muted">${escapeHtml(row.project || "Unassigned")}</span>
-        <span class="muted wrap-anywhere">${escapeHtml(row.tags.join(", ") || row.comment || "-")}</span>
+      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(row.remoteAddr || row.ip)}">${escapeHtml(row.ip)}</div>
+      <div class="hosts-list-cell compact-value" title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.user)}</div>
+      <div class="hosts-list-cell hosts-name-cell">
+        <strong title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.host)}</strong>
+        <span title="${escapeAttribute(row.connectionId || row.stableId)}">${escapeHtml(row.connectionId || row.stableId)}</span>
       </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.ip)}</strong>
-        <span class="muted wrap-anywhere">${escapeHtml(row.remoteAddr || "-")}</span>
-      </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.platform)}</strong>
-        <span class="muted wrap-anywhere">${escapeHtml(row.version || "-")}</span>
-      </div>
-      <div class="client-cell">
-        <span>Added ${escapeHtml(formatDate(row.dateAdded))}</span>
-        <span class="muted">Last ${escapeHtml(formatDate(row.lastActivityAt))}</span>
-      </div>
-      <div class="client-cell client-cell-status">
-        <span class="status-pill ${row.connected ? "online" : "offline"}">
+      <div class="hosts-list-cell compact-value" title="${escapeAttribute(formatDate(sessionTime))}">${escapeHtml(compactDate(sessionTime))}</div>
+      <div class="hosts-list-cell hosts-status-cell">
+        <span class="hosts-status-text ${row.connected ? "online" : "offline"}">
           <span class="status-dot ${row.connected ? "online" : "offline"}"></span>${row.connected ? "Online" : "Offline"}
         </span>
-        <button class="ghost-button host-filesystem-button" type="button" data-open-filesystem="${escapeAttribute(row.key)}" ${row.connected ? "" : "disabled"}>Open file system</button>
       </div>
-      <div class="client-toolbar-slot client-toolbar-slot-select">
-        <a class="action-button action-link host-row-action" href="${escapeAttribute(href)}">Open Shell</a>
-      </div>
-      <div class="client-toolbar-slot client-toolbar-slot-id">
-        <button class="ghost-button host-row-action" data-copy-command="${escapeAttribute(command)}">Copy connect command</button>
-      </div>
-      <div class="client-toolbar-slot client-toolbar-slot-host">
-        <button class="danger-button host-row-action" data-delete-host="${escapeAttribute(row.stableId)}" data-hostname="${escapeAttribute(row.hostname)}" data-connected="${row.connected ? "true" : "false"}">${escapeHtml(deleteLabel)}</button>
-      </div>
-      ${running ? `<div class="client-toolbar-status"><span class="chip">Running command...</span></div>` : ""}
+      ${running ? `<div class="hosts-row-running"><span class="chip">Running command...</span></div>` : ""}
       ${renderCommandResult(execution)}
     </article>
   `;
@@ -362,7 +429,7 @@ function renderCommandResult(execution) {
   }
 
   const status = execution.error
-    ? (execution.timedOut ? "Timed Out" : "Failed")
+    ? (execution.timedOut ? "Timed out" : "Failed")
     : "Completed";
   const statusClass = execution.error ? "offline" : "online";
 
@@ -378,7 +445,7 @@ function renderCommandResult(execution) {
     <div class="client-command-result shell-panel">
       <div class="client-command-result-head">
         <div>
-          <p class="eyebrow">Command Result</p>
+          <p class="eyebrow">Command result</p>
           <h4>${escapeHtml(execution.command)}</h4>
         </div>
         <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
@@ -386,6 +453,76 @@ function renderCommandResult(execution) {
       <pre class="output-block small-output">${escapeHtml(body)}</pre>
     </div>
   `;
+}
+
+function openHostContextMenu(rowKey, x, y) {
+  const row = findRowByKey(rowKey);
+  if (!row) {
+    closeHostContextMenu();
+    return;
+  }
+
+  pageState.contextRowKey = row.key;
+  hostContextMenu.querySelectorAll("[data-context-action]").forEach((button) => {
+    const action = button.dataset.contextAction || "";
+    if (action === "filesystem") {
+      button.disabled = !row.connected;
+    } else {
+      button.disabled = false;
+    }
+  });
+
+  hostContextMenu.classList.remove("hidden");
+  hostContextMenu.setAttribute("aria-hidden", "false");
+  hostContextMenu.style.left = "0px";
+  hostContextMenu.style.top = "0px";
+
+  const rect = hostContextMenu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - rect.width - 12);
+  const top = Math.min(y, window.innerHeight - rect.height - 12);
+  hostContextMenu.style.left = `${Math.max(12, left)}px`;
+  hostContextMenu.style.top = `${Math.max(12, top)}px`;
+}
+
+function closeHostContextMenu() {
+  pageState.contextRowKey = "";
+  hostContextMenu.classList.add("hidden");
+  hostContextMenu.setAttribute("aria-hidden", "true");
+}
+
+async function handleHostContextAction(action) {
+  const row = findRowByKey(pageState.contextRowKey);
+  closeHostContextMenu();
+  if (!row) {
+    return;
+  }
+
+  switch (action) {
+  case "open":
+    window.location.href = hostPageHref(row.stableId, row.connectionId, pageState.ctx?.project || "");
+    return;
+  case "filesystem":
+    openFilesystemForRow(row.key);
+    return;
+  case "copy": {
+    const jumpTarget = buildJumpTarget(pageState.systemOptions, row.host, pageState.ctx?.user);
+    await copyText(hostCommandTemplates(row.host, row.connection, jumpTarget).ssh);
+    return;
+  }
+  case "select":
+    toggleRowSelection(row.key, !pageState.selectedRows.has(row.key));
+    renderHosts();
+    return;
+  case "delete":
+    requestDeleteHost(row);
+    return;
+  default:
+    return;
+  }
+}
+
+function findRowByKey(rowKey) {
+  return getClientRows(pageState.hosts).find((row) => row.key === rowKey) || null;
 }
 
 function toggleRowSelection(key, checked) {
@@ -423,7 +560,7 @@ function syncBulkControls(rows) {
   selectVisibleHostsButton.disabled = rows.length === 0 || pageState.runningRows.size > 0;
   clearSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
-  runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run On Selected";
+  runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run selected";
 }
 
 function pruneRowState(rows) {
@@ -505,12 +642,16 @@ async function deleteHost(button) {
   const stableId = button.dataset.deleteHost || "";
   const hostname = button.dataset.hostname || stableId;
   const connected = button.dataset.connected === "true";
-  if (!connected) {
-    openOfflineDeleteModal(stableId, hostname);
+  requestDeleteHost({ stableId, hostname, connected });
+}
+
+function requestDeleteHost(row) {
+  if (!row?.connected) {
+    openOfflineDeleteModal(row.stableId, row.hostname || row.stableId);
     return;
   }
 
-  openOnlineDeleteModal(stableId, hostname);
+  openOnlineDeleteModal(row.stableId, row.hostname || row.stableId);
 }
 
 function openOfflineDeleteModal(stableId, hostname) {
@@ -545,8 +686,8 @@ function closeOfflineDeleteModal(force = false) {
   pageState.pendingOfflineDelete = null;
   offlineDeleteOverlay.classList.remove("visible");
   offlineDeleteError.textContent = "";
-  deleteOnlyOfflineButton.textContent = "Delete Only This Client";
-  deleteAllOfflineButton.textContent = "Delete All Offline Clients";
+  deleteOnlyOfflineButton.textContent = "Delete only this client";
+  deleteAllOfflineButton.textContent = "Delete all offline clients";
   deleteOnlyOfflineButton.disabled = false;
   deleteAllOfflineButton.disabled = false;
   cancelOfflineDeleteButton.disabled = false;
@@ -574,7 +715,7 @@ async function deleteOfflineFromModal(mode) {
   deleteOnlyOfflineButton.disabled = true;
   deleteAllOfflineButton.disabled = true;
   cancelOfflineDeleteButton.disabled = true;
-  actionButton.textContent = mode === "all" ? "Deleting Offline Clients..." : "Deleting Client...";
+  actionButton.textContent = mode === "all" ? "Deleting offline clients..." : "Deleting client...";
 
   try {
     await deleteHostRecords(stableIds);
@@ -638,7 +779,7 @@ function closeOnlineDeleteModal(force = false) {
   pageState.pendingOnlineDelete = null;
   onlineDeleteOverlay.classList.remove("visible");
   onlineDeleteError.textContent = "";
-  confirmOnlineDeleteButton.textContent = "Delete Client";
+  confirmOnlineDeleteButton.textContent = "Delete client";
   confirmOnlineDeleteButton.disabled = false;
   cancelOnlineDeleteButton.disabled = false;
 }
@@ -652,7 +793,7 @@ async function deleteOnlineFromModal() {
   onlineDeleteError.textContent = "";
   confirmOnlineDeleteButton.disabled = true;
   cancelOnlineDeleteButton.disabled = true;
-  confirmOnlineDeleteButton.textContent = "Deleting Client...";
+  confirmOnlineDeleteButton.textContent = "Deleting client...";
 
   try {
     await deleteHostRecords([pending.stableId]);
@@ -660,7 +801,7 @@ async function deleteOnlineFromModal() {
     await refreshHostsAfterMutation();
   } catch (error) {
     onlineDeleteError.textContent = error.message;
-    confirmOnlineDeleteButton.textContent = "Delete Client";
+    confirmOnlineDeleteButton.textContent = "Delete client";
     confirmOnlineDeleteButton.disabled = false;
     cancelOnlineDeleteButton.disabled = false;
   }

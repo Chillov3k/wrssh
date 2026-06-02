@@ -27,6 +27,7 @@ const PROJECT_SCOPED_VIEWS = new Set([
 ]);
 
 const THEME_STORAGE_KEY = "wrssh.theme";
+const SIDEBAR_STORAGE_KEY = "wrssh.sidebarCollapsed";
 const LIGHT_THEME = "light";
 const DARK_THEME = "dark";
 const KNOWN_VIEW_PATHS = Object.values(VIEW_PATHS).sort((left, right) => right.length - left.length);
@@ -67,6 +68,7 @@ export async function initPage({ title, load, requireProject = false }) {
   }
 
   initThemeUI();
+  initSidebarUI();
   syncNavigation(ctx.project);
   bindAuth(ctx, load, requireProject);
 
@@ -206,6 +208,84 @@ function initThemeUI() {
     applyTheme(currentTheme() === DARK_THEME ? LIGHT_THEME : DARK_THEME);
   });
   syncThemeToggle(themeToggle);
+}
+
+function initSidebarUI() {
+  const appShell = document.querySelector(".app-shell");
+  const sidebar = document.querySelector(".sidebar");
+  const brandHead = document.querySelector(".brand-head");
+  if (!appShell || !sidebar || !brandHead) {
+    return;
+  }
+
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    const label = item.textContent.trim();
+    item.dataset.short = sidebarShortLabel(label);
+    item.setAttribute("title", label);
+  });
+
+  const editProfileButton = byId("editProfileButton");
+  const logoutButton = byId("logoutButton");
+  if (editProfileButton) {
+    editProfileButton.dataset.short = "E";
+    editProfileButton.setAttribute("title", "Edit profile");
+  }
+  if (logoutButton) {
+    logoutButton.dataset.short = "L";
+    logoutButton.setAttribute("title", "Logout");
+  }
+
+  let sidebarToggle = brandHead.querySelector(".sidebar-toggle");
+  if (!sidebarToggle) {
+    sidebarToggle = document.createElement("button");
+    sidebarToggle.className = "sidebar-toggle";
+    sidebarToggle.type = "button";
+    brandHead.appendChild(sidebarToggle);
+  }
+
+  const applyCollapsed = (collapsed) => {
+    appShell.classList.toggle("sidebar-collapsed", collapsed);
+    sidebarToggle.textContent = collapsed ? "›" : "‹";
+    sidebarToggle.setAttribute("aria-label", collapsed ? "Show menu" : "Hide menu");
+    sidebarToggle.setAttribute("title", collapsed ? "Show menu" : "Hide menu");
+    sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? "1" : "0");
+    } catch (error) {
+      console.warn("sidebar storage unavailable", error);
+    }
+  };
+
+  applyCollapsed(readStoredSidebarCollapsed());
+  sidebarToggle.addEventListener("click", () => {
+    applyCollapsed(!appShell.classList.contains("sidebar-collapsed"));
+  });
+}
+
+function readStoredSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+  } catch (error) {
+    console.warn("sidebar storage unavailable", error);
+    return false;
+  }
+}
+
+function sidebarShortLabel(label) {
+  switch (label.toLowerCase()) {
+  case "overview":
+    return "O";
+  case "hosts":
+    return "H";
+  case "builds":
+    return "B";
+  case "downloads":
+    return "D";
+  case "manage users":
+    return "U";
+  default:
+    return label.slice(0, 1).toUpperCase() || "?";
+  }
 }
 
 async function loadWithAuth(ctx, load) {
