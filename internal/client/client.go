@@ -362,7 +362,7 @@ func Run(settings *Settings) {
 		username = clientAccountName(userInfo.Username)
 	}
 
-	hostname, sysinfoError := os.Hostname()
+	hostname, sysinfoError := clientHostname()
 	if sysinfoError != nil {
 		hostname = "Unknown Hostname"
 		l.Warning("Couldnt get host name: %s", sysinfoError)
