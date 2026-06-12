@@ -380,7 +380,22 @@ async function navigateFilesystemPath(event) {
   node.loaded = false;
   setFilesystemMessage("", "");
   clearFilesystemPreview();
-  await loadFilesystemDirectory(node.path);
+  const lineage = filesystemPathLineage(node.path);
+  for (let index = 0; index < lineage.length; index++) {
+    const directory = lineage[index];
+    const directoryNode = ensureFilesystemDirectoryNode(directory);
+    directoryNode.expanded = true;
+    if (!directoryNode.loaded || directoryNode.path === node.path) {
+      await loadFilesystemDirectory(directoryNode.path);
+    } else {
+      renderFilesystem();
+    }
+    const currentNode = filesystemNode(directory);
+    const nextDirectory = lineage[index + 1];
+    if (currentNode && nextDirectory && !currentNode.error) {
+      linkFilesystemChild(currentNode, nextDirectory);
+    }
+  }
 }
 
 async function refreshSelectedFilesystemDirectory() {
@@ -588,16 +603,23 @@ function ensureFilesystemDirectoryNode(remotePath) {
   if (parent && parent !== path) {
     const parentNode = ensureFilesystemDirectoryNode(parent);
     parentNode.expanded = true;
-    if (!parentNode.items.some((item) => item.path === path)) {
-      parentNode.items.push({
-        path,
-        name: node.name,
-        type: "directory"
-      });
-    }
+    linkFilesystemChild(parentNode, path);
   }
 
   return node;
+}
+
+function linkFilesystemChild(parentNode, childPath) {
+  const path = normalizeFilesystemPath(childPath);
+  if (parentNode.items.some((item) => normalizeFilesystemPath(item.path) === path)) {
+    return;
+  }
+  const childNode = filesystemNode(path);
+  parentNode.items.push({
+    path,
+    name: childNode?.name || filesystemPathName(path),
+    type: "directory"
+  });
 }
 
 function normalizeFilesystemPath(remotePath) {
@@ -650,6 +672,17 @@ function filesystemParentPath(path) {
   }
   const slash = value.lastIndexOf("/");
   return slash <= 0 ? "/" : value.slice(0, slash);
+}
+
+function filesystemPathLineage(path) {
+  const normalized = normalizeFilesystemPath(path);
+  const lineage = [];
+  let current = normalized;
+  while (current && current !== "/") {
+    lineage.unshift(current);
+    current = filesystemParentPath(current);
+  }
+  return lineage;
 }
 
 function filesystemRootNode(row) {
