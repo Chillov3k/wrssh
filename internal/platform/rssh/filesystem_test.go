@@ -37,3 +37,27 @@ func TestJoinRemotePathPreservesWindowsDrivePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestExpandHomeRemotePath(t *testing.T) {
+	tests := []struct {
+		remotePath string
+		home       string
+		want       string
+		wantOK     bool
+	}{
+		{remotePath: "~", home: "/home/alice", want: "/home/alice", wantOK: true},
+		{remotePath: "~/.ssh", home: "/home/alice", want: "/home/alice/.ssh", wantOK: true},
+		{remotePath: "~/Documents/file.txt", home: "C:/Users/Alice", want: "C:/Users/Alice/Documents/file.txt", wantOK: true},
+		{remotePath: "/etc/ssh", home: "/home/alice", want: "", wantOK: false},
+	}
+
+	for _, test := range tests {
+		got, ok := expandHomeRemotePath(test.remotePath, test.home)
+		if ok != test.wantOK {
+			t.Fatalf("expandHomeRemotePath(%q, %q) ok = %v, want %v", test.remotePath, test.home, ok, test.wantOK)
+		}
+		if got != test.want {
+			t.Fatalf("expandHomeRemotePath(%q, %q) = %q, want %q", test.remotePath, test.home, got, test.want)
+		}
+	}
+}

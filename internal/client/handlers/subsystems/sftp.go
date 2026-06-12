@@ -3,6 +3,8 @@ package subsystems
 import (
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 
 	"github.com/NHAS/reverse_ssh/internal/terminal"
 	"github.com/pkg/sftp"
@@ -12,7 +14,14 @@ import (
 type subSftp bool
 
 func (s *subSftp) Execute(_ terminal.ParsedLine, connection ssh.Channel, subsystemReq *ssh.Request) error {
-	server, err := sftp.NewServer(connection)
+	options := make([]sftp.ServerOption, 0, 1)
+	if runtime.GOOS != "windows" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			options = append(options, sftp.WithServerWorkingDirectory(home))
+		}
+	}
+
+	server, err := sftp.NewServer(connection, options...)
 	if err != nil {
 		subsystemReq.Reply(false, []byte(err.Error()))
 		return err

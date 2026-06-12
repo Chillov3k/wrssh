@@ -45,6 +45,8 @@ const closeFilesystemButton = document.getElementById("closeFilesystemButton");
 const filesystemTitle = document.getElementById("filesystemTitle");
 const filesystemMetaText = document.getElementById("filesystemMeta");
 const filesystemCurrentPath = document.getElementById("filesystemCurrentPath");
+const filesystemPathForm = document.getElementById("filesystemPathForm");
+const filesystemPathInput = document.getElementById("filesystemPathInput");
 const refreshFilesystemButton = document.getElementById("refreshFilesystemButton");
 const uploadFilesystemButton = document.getElementById("uploadFilesystemButton");
 const filesystemMessage = document.getElementById("filesystemMessage");
@@ -128,6 +130,7 @@ onlineDeleteOverlay.addEventListener("click", (event) => {
 });
 confirmOnlineDeleteButton.addEventListener("click", deleteOnlineFromModal);
 closeFilesystemButton.addEventListener("click", closeFilesystem);
+filesystemPathForm.addEventListener("submit", navigateFilesystemPath);
 refreshFilesystemButton.addEventListener("click", refreshSelectedFilesystemDirectory);
 uploadFilesystemButton.addEventListener("click", () => triggerFilesystemUpload(pageState.filesystem.selectedDirectory));
 filesystemTree.addEventListener("click", handleFilesystemClick);
@@ -902,6 +905,27 @@ function selectFilesystemDirectory(remotePath) {
   renderFilesystem();
 }
 
+async function navigateFilesystemPath(event) {
+  event.preventDefault();
+
+  const path = normalizeFilesystemPath(filesystemPathInput.value);
+  if (!path) {
+    return;
+  }
+
+  let node = filesystemNode(path);
+  if (!node) {
+    node = ensureFilesystemDirectoryNode(path);
+  }
+
+  pageState.filesystem.selectedDirectory = node.path;
+  node.expanded = true;
+  node.loaded = false;
+  setFilesystemMessage("", "");
+  clearFilesystemPreview();
+  await loadFilesystemDirectory(node.path);
+}
+
 async function refreshSelectedFilesystemDirectory() {
   const selected = pageState.filesystem.selectedDirectory || "/";
   const node = filesystemNode(selected);
@@ -1085,10 +1109,51 @@ function filesystemNode(remotePath) {
   return pageState.filesystem.nodes.get(path);
 }
 
+function ensureFilesystemDirectoryNode(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  const existing = pageState.filesystem.nodes.get(path);
+  if (existing) {
+    return existing;
+  }
+
+  const node = {
+    path,
+    name: filesystemPathName(path),
+    type: "directory",
+    expanded: true,
+    loaded: false,
+    loading: false,
+    error: "",
+    items: []
+  };
+  pageState.filesystem.nodes.set(path, node);
+
+  const parent = filesystemParentPath(path);
+  if (parent && parent !== path) {
+    const parentNode = ensureFilesystemDirectoryNode(parent);
+    parentNode.expanded = true;
+    if (!parentNode.items.some((item) => item.path === path)) {
+      parentNode.items.push({
+        path,
+        name: node.name,
+        type: "directory"
+      });
+    }
+  }
+
+  return node;
+}
+
 function normalizeFilesystemPath(remotePath) {
   const value = String(remotePath || "").trim().replaceAll("\\", "/");
   if (!value || value === ".") {
     return "/";
+  }
+  if (value === "~" || value === "~/") {
+    return "~";
+  }
+  if (value.startsWith("~/")) {
+    return value;
   }
   if (value.startsWith("/") && isWindowsDrivePath(value.slice(1))) {
     return normalizeWindowsDrivePath(value.slice(1));
@@ -1097,6 +1162,38 @@ function normalizeFilesystemPath(remotePath) {
     return normalizeWindowsDrivePath(value);
   }
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemPathName(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "/";
+  }
+  if (isWindowsDrivePath(value) && value.endsWith(":/")) {
+    return value;
+  }
+  const parts = value.split("/").filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
+
+function filesystemParentPath(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "";
+  }
+  if (value === "~") {
+    return "/";
+  }
+  if (value.startsWith("~/")) {
+    const rest = value.slice(2).split("/").filter(Boolean);
+    return rest.length <= 1 ? "~" : `~/${rest.slice(0, -1).join("/")}`;
+  }
+  if (isWindowsDrivePath(value)) {
+    const slash = value.lastIndexOf("/");
+    return slash <= 2 ? "/" : value.slice(0, slash);
+  }
+  const slash = value.lastIndexOf("/");
+  return slash <= 0 ? "/" : value.slice(0, slash);
 }
 
 function filesystemRootNode(row) {
@@ -1160,6 +1257,7 @@ function renderFilesystem() {
   const root = filesystemNode("/");
   const selectedNode = filesystemNode(pageState.filesystem.selectedDirectory || "/");
   filesystemCurrentPath.textContent = filesystemDisplayPath(pageState.filesystem.selectedDirectory || "/");
+  filesystemPathInput.value = normalizeFilesystemPath(pageState.filesystem.selectedDirectory || "/");
   refreshFilesystemButton.disabled = !root;
   uploadFilesystemButton.disabled = !selectedNode || selectedNode.virtual;
   filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;

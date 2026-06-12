@@ -160,6 +160,10 @@
           <span class="command-label">Selected directory</span>
           <strong id="filesystemCurrentPath">/</strong>
         </div>
+        <form id="filesystemPathForm" class="filesystem-path-form">
+          <input id="filesystemPathInput" type="text" placeholder="~/.ssh, /etc/ssh, C:/Users" autocomplete="off" spellcheck="false">
+          <button id="filesystemGoButton" class="ghost-button" type="submit">Go</button>
+        </form>
         <div class="inline-actions">
           <button id="refreshFilesystemButton" class="ghost-button" type="button">Refresh</button>
           <button id="uploadFilesystemButton" class="action-button" type="button">Upload</button>

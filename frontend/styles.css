@@ -2131,6 +2131,31 @@ pre {
   font-family: var(--mono);
 }
 
+.filesystem-path-form {
+  flex: 1 1 360px;
+  min-width: min(420px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filesystem-path-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+
+.filesystem-path-form input:focus {
+  outline: 2px solid rgba(11, 99, 215, 0.18);
+  border-color: rgba(11, 99, 215, 0.42);
+}
+
 .filesystem-message {
   min-height: 1.25em;
   color: var(--muted);
@@ -2763,6 +2788,12 @@ html[data-theme="dark"] .filesystem-toolbar,
 html[data-theme="dark"] .filesystem-tree {
   background: rgba(13, 22, 35, 0.88);
   border-color: rgba(143, 173, 255, 0.14);
+}
+
+html[data-theme="dark"] .filesystem-path-form input {
+  border-color: rgba(143, 173, 255, 0.14);
+  background: rgba(15, 23, 42, 0.78);
+  color: var(--text);
 }
 
 html[data-theme="dark"] .filesystem-preview {
