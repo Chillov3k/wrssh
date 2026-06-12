@@ -177,6 +177,7 @@ func runCommandWithPty(argv string, command string, args []string, ptyReq *inter
 
 		command = fallbackApplet
 		shell = exec.Command(fallbackCommand, fallbackArgs...)
+		shell.Args[0] = "busybox"
 		shell.Env = append(noHistoryEnv(os.Environ()), "TERM="+ptyReq.Term)
 		shellIO, err = pty.StartWithSize(shell, &pty.Winsize{Cols: uint16(ptyReq.Columns), Rows: uint16(ptyReq.Rows)})
 		if err != nil {
@@ -239,10 +240,10 @@ func shell(ptyReq *internal.PtyReq, connection ssh.Channel, requests <-chan *ssh
 		busyboxPath, fallbackArgs, _, err := busyBoxFallbackCommand("sh", nil)
 		if err == nil {
 			if ptyReq != nil {
-				runCommandWithPty("", busyboxPath, fallbackArgs, ptyReq, requests, log, connection)
+				runCommandWithPty("busybox", busyboxPath, fallbackArgs, ptyReq, requests, log, connection)
 				return
 			}
-			runCommand("", busyboxPath, fallbackArgs, connection)
+			runCommand("busybox", busyboxPath, fallbackArgs, connection)
 			return
 		}
 		log.Info("BusyBox fallback unavailable (%s)", err)

@@ -185,7 +185,7 @@ func runCommand(argv string, command string, args []string, connection ssh.Chann
 			fmt.Fprintf(connection, "%s", busyBoxFallbackError(err, fallbackErr).Error())
 			return
 		}
-		if fallbackErr = runCommandOnce("", fallbackCommand, fallbackArgs, connection); fallbackErr != nil {
+		if fallbackErr = runCommandOnce("busybox", fallbackCommand, fallbackArgs, connection); fallbackErr != nil {
 			fmt.Fprintf(connection, "%s", busyBoxFallbackError(err, fallbackErr).Error())
 			return
 		}
