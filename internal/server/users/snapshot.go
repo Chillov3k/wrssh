@@ -114,7 +114,7 @@ func snapshotFromConnLocked(id string, conn *ssh.ServerConn) ClientSnapshot {
 	return ClientSnapshot{
 		ConnectionID:         id,
 		StableID:             id,
-		Hostname:             NormaliseHostname(conn.User()),
+		Hostname:             NormaliseClientHostname(conn.User()),
 		RemoteAddr:           conn.RemoteAddr().String(),
 		RemoteIP:             remoteIP(conn.RemoteAddr().String()),
 		Version:              string(conn.ClientVersion()),

@@ -359,7 +359,7 @@ func Run(settings *Settings) {
 		l.Warning("Couldnt get username: %s", sysinfoError.Error())
 		username = "Unknown"
 	} else {
-		username = userInfo.Username
+		username = clientAccountName(userInfo.Username)
 	}
 
 	hostname, sysinfoError := os.Hostname()
@@ -638,6 +638,26 @@ func Run(settings *Settings) {
 
 	}
 
+}
+
+func clientAccountName(username string) string {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "Unknown"
+	}
+
+	if index := strings.LastIndexAny(username, `\/`); index >= 0 && index < len(username)-1 {
+		username = username[index+1:]
+	}
+	if index := strings.Index(username, "@"); index > 0 {
+		username = username[:index]
+	}
+
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "Unknown"
+	}
+	return username
 }
 
 var matchSchemeDefinition = regexp.MustCompile(`.*\:\/\/`)

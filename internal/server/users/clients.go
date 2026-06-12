@@ -34,6 +34,14 @@ func NormaliseHostname(hostname string) string {
 	return hostname
 }
 
+func NormaliseClientHostname(hostname string) string {
+	hostname = strings.TrimSpace(hostname)
+	if index := strings.LastIndexAny(hostname, `\/`); index >= 0 && index < len(hostname)-1 {
+		hostname = hostname[index+1:]
+	}
+	return NormaliseHostname(hostname)
+}
+
 func AssociateClient(conn *ssh.ServerConn) (string, string, error) {
 	lck.Lock()
 	defer lck.Unlock()
@@ -43,7 +51,7 @@ func AssociateClient(conn *ssh.ServerConn) (string, string, error) {
 		return "", "", err
 	}
 
-	username := NormaliseHostname(conn.User())
+	username := NormaliseClientHostname(conn.User())
 
 	addAlias(idString, username)
 	addAlias(idString, conn.RemoteAddr().String())
@@ -65,7 +73,7 @@ func AssociateClient(conn *ssh.ServerConn) (string, string, error) {
 }
 
 func _associateToOwners(idString, owners string, conn *ssh.ServerConn) {
-	username := NormaliseHostname(conn.User())
+	username := NormaliseClientHostname(conn.User())
 	ownersParts := strings.Split(owners, ",")
 
 	if len(ownersParts) == 1 && ownersParts[0] == "" {
