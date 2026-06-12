@@ -1,6 +1,13 @@
 package webserver
 
-import "testing"
+import (
+	"encoding/json"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestValidateBuildConfigAcceptsSafeValues(t *testing.T) {
 	config := BuildConfig{
@@ -58,5 +65,48 @@ func TestValidateBuildConfigRejectsMultiLineComment(t *testing.T) {
 
 	if err := validateBuildConfig(config); err == nil {
 		t.Fatal("expected multiline comment to be rejected")
+	}
+}
+
+func TestPrepareBusyBoxOverlayUsesConfiguredBinary(t *testing.T) {
+	busyboxPath := filepath.Join(t.TempDir(), "busybox-amd64")
+	if err := os.WriteFile(busyboxPath, []byte("fake-busybox"), 0700); err != nil {
+		t.Fatalf("write fake busybox: %v", err)
+	}
+	t.Setenv("RSSH_BUSYBOX_AMD64_PATH", busyboxPath)
+
+	overlayPath, cleanup, err := prepareBusyBoxOverlay("linux", "amd64")
+	if err != nil {
+		t.Fatalf("prepare busybox overlay: %v", err)
+	}
+	defer cleanup()
+
+	overlayBytes, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatalf("read overlay: %v", err)
+	}
+
+	var overlay goBuildOverlay
+	if err := json.Unmarshal(overlayBytes, &overlay); err != nil {
+		t.Fatalf("decode overlay: %v", err)
+	}
+
+	generatedPath := overlay.Replace[filepath.Join(projectRoot, "internal/client/busybox/embedded.go")]
+	if generatedPath == "" {
+		t.Fatalf("expected embedded busybox source replacement in overlay: %#v", overlay.Replace)
+	}
+
+	generatedSource, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read generated source: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), generatedPath, generatedSource, 0); err != nil {
+		t.Fatalf("generated source is not valid Go: %v", err)
+	}
+}
+
+func TestPrepareBusyBoxOverlayRejectsNonLinuxTarget(t *testing.T) {
+	if _, _, err := prepareBusyBoxOverlay("windows", "amd64"); err == nil {
+		t.Fatal("expected non-linux busybox overlay target to be rejected")
 	}
 }

@@ -2,7 +2,9 @@ package webserver
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -45,14 +47,15 @@ type BuildConfig struct {
 
 	UseKerberosAuth bool
 
-	SharedLibrary bool
-	UPX           bool
-	Lzma          bool
-	Garble        bool
-	DisableLibC   bool
-	RawDownload   bool
-	UseHostHeader bool
-	NoHistorySave bool
+	SharedLibrary   bool
+	UPX             bool
+	Lzma            bool
+	Garble          bool
+	DisableLibC     bool
+	RawDownload     bool
+	UseHostHeader   bool
+	NoHistorySave   bool
+	BusyBoxFallback bool
 
 	WorkingDirectory string
 
@@ -141,6 +144,16 @@ func Build(config BuildConfig) (string, error) {
 	}
 
 	buildArguments = append(buildArguments, "build", "-trimpath")
+	var cleanupBusyBoxOverlay func()
+	if config.BusyBoxFallback {
+		busyBoxOverlay, cleanup, err := prepareBusyBoxOverlay(f.Goos, f.Goarch)
+		if err != nil {
+			return "", err
+		}
+		cleanupBusyBoxOverlay = cleanup
+		defer cleanupBusyBoxOverlay()
+		buildArguments = append(buildArguments, "-overlay", busyBoxOverlay)
+	}
 
 	if config.SharedLibrary {
 		buildArguments = append(buildArguments, "-buildmode=c-shared")
@@ -173,7 +186,7 @@ func Build(config BuildConfig) (string, error) {
 		return "", err
 	}
 
-	buildArguments = append(buildArguments, fmt.Sprintf("-ldflags=-s -w -X main.logLevel=%s -X main.destination=%s -X main.fingerprint=%s -X main.proxy=%s -X main.customSNI=%s -X main.useHostKerberos=%t -X main.noHistorySave=%t -X main.ntlmProxyCreds=%s -X main.versionString=%s -X github.com/NHAS/reverse_ssh/internal.Version=%s -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=%s", config.LogLevel, config.ConnectBackAdress, config.Fingerprint, config.Proxy, config.SNI, config.UseKerberosAuth, config.NoHistorySave, config.NTLMProxyCreds, strings.TrimSpace(config.VersionString), strings.TrimSpace(f.Version), embeddedPrivateKeyB64))
+	buildArguments = append(buildArguments, fmt.Sprintf("-ldflags=-s -w -X main.logLevel=%s -X main.destination=%s -X main.fingerprint=%s -X main.proxy=%s -X main.customSNI=%s -X main.useHostKerberos=%t -X main.noHistorySave=%t -X main.busyBoxFallback=%t -X main.ntlmProxyCreds=%s -X main.versionString=%s -X github.com/NHAS/reverse_ssh/internal.Version=%s -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=%s", config.LogLevel, config.ConnectBackAdress, config.Fingerprint, config.Proxy, config.SNI, config.UseKerberosAuth, config.NoHistorySave, config.BusyBoxFallback, config.NTLMProxyCreds, strings.TrimSpace(config.VersionString), strings.TrimSpace(f.Version), embeddedPrivateKeyB64))
 	buildArguments = append(buildArguments, "-o", f.FilePath, filepath.Join(projectRoot, "/cmd/client"))
 
 	cmd := exec.Command(buildTool, buildArguments...)
@@ -282,6 +295,131 @@ func Build(config BuildConfig) (string, error) {
 	}
 
 	return "http://" + DefaultConnectBack + "/" + config.Name, nil
+}
+
+type goBuildOverlay struct {
+	Replace map[string]string `json:"Replace"`
+}
+
+func prepareBusyBoxOverlay(goos, goarch string) (string, func(), error) {
+	if goos != "linux" {
+		return "", nil, errors.New("busybox fallback can only be embedded into linux artifacts")
+	}
+
+	sourcePath, err := findBusyBoxBinary(goarch)
+	if err != nil {
+		return "", nil, err
+	}
+
+	sourceBytes, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("read busybox fallback binary %q: %w", sourcePath, err)
+	}
+	if len(sourceBytes) == 0 {
+		return "", nil, fmt.Errorf("busybox fallback binary %q is empty", sourcePath)
+	}
+
+	compressed, err := gzipBytes(sourceBytes)
+	if err != nil {
+		return "", nil, err
+	}
+
+	tempDir, err := os.MkdirTemp("", "wrssh-busybox-overlay-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create busybox overlay temp dir: %w", err)
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(tempDir)
+	}
+
+	generatedSourcePath := filepath.Join(tempDir, "embedded.go")
+	if err := os.WriteFile(generatedSourcePath, generatedBusyBoxSource(compressed), 0600); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("write busybox overlay source: %w", err)
+	}
+
+	overlayPath := filepath.Join(tempDir, "overlay.json")
+	overlay := goBuildOverlay{
+		Replace: map[string]string{
+			filepath.Join(projectRoot, "internal/client/busybox/embedded.go"): generatedSourcePath,
+		},
+	}
+	overlayBytes, err := json.Marshal(overlay)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("encode busybox overlay: %w", err)
+	}
+	if err := os.WriteFile(overlayPath, overlayBytes, 0600); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("write busybox overlay: %w", err)
+	}
+
+	return overlayPath, cleanup, nil
+}
+
+func findBusyBoxBinary(goarch string) (string, error) {
+	envKey := "RSSH_BUSYBOX_" + strings.ToUpper(strings.ReplaceAll(goarch, "-", "_")) + "_PATH"
+	candidates := []string{
+		strings.TrimSpace(os.Getenv(envKey)),
+		strings.TrimSpace(os.Getenv("RSSH_BUSYBOX_PATH")),
+		filepath.Join("/usr/local/share/wrssh/busybox", "linux-"+goarch),
+		filepath.Join("/usr/local/share/wrssh/busybox", "busybox-"+goarch),
+		filepath.Join("/usr/local/bin", "busybox-"+goarch),
+	}
+
+	if runtime.GOOS == "linux" && runtime.GOARCH == goarch {
+		candidates = append(candidates, "/bin/busybox", "/usr/bin/busybox")
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("busybox fallback requested for linux/%s, but no busybox binary was found; set %s or RSSH_BUSYBOX_PATH", goarch, envKey)
+}
+
+func gzipBytes(input []byte) ([]byte, error) {
+	var output bytes.Buffer
+	writer, err := gzip.NewWriterLevel(&output, gzip.BestCompression)
+	if err != nil {
+		return nil, fmt.Errorf("create busybox gzip writer: %w", err)
+	}
+	if _, err := writer.Write(input); err != nil {
+		_ = writer.Close()
+		return nil, fmt.Errorf("compress busybox fallback: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("finish busybox fallback compression: %w", err)
+	}
+	return output.Bytes(), nil
+}
+
+func generatedBusyBoxSource(compressed []byte) []byte {
+	var output bytes.Buffer
+	output.WriteString("package busybox\n\n")
+	output.WriteString("var embeddedGzip = []byte{\n")
+	for i, value := range compressed {
+		if i%12 == 0 {
+			output.WriteString("\t")
+		}
+		output.WriteString(fmt.Sprintf("0x%02x,", value))
+		if i%12 == 11 {
+			output.WriteString("\n")
+		} else {
+			output.WriteByte(' ')
+		}
+	}
+	if len(compressed)%12 != 0 {
+		output.WriteString("\n")
+	}
+	output.WriteString("}\n")
+	return output.Bytes()
 }
 
 func startBuildManager(_cachePath string) error {

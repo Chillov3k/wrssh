@@ -174,6 +174,25 @@ func runCommand(argv string, command string, args []string, connection ssh.Chann
 		}
 	}
 
+	if err := runCommandOnce(argv, command, args, connection); err != nil {
+		if !commandMissing(err) {
+			fmt.Fprintf(connection, "%s", err.Error())
+			return
+		}
+
+		fallbackCommand, fallbackArgs, _, fallbackErr := busyBoxFallbackCommand(command, args)
+		if fallbackErr != nil {
+			fmt.Fprintf(connection, "%s", busyBoxFallbackError(err, fallbackErr).Error())
+			return
+		}
+		if fallbackErr = runCommandOnce("", fallbackCommand, fallbackArgs, connection); fallbackErr != nil {
+			fmt.Fprintf(connection, "%s", busyBoxFallbackError(err, fallbackErr).Error())
+			return
+		}
+	}
+}
+
+func runCommandOnce(argv string, command string, args []string, connection ssh.Channel) error {
 	cmd := exec.Command(command, args...)
 	if len(argv) != 0 {
 		cmd.Args[0] = argv
@@ -182,8 +201,7 @@ func runCommand(argv string, command string, args []string, connection ssh.Chann
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Fprintf(connection, "%s", err.Error())
-		return
+		return err
 	}
 	defer stdout.Close()
 
@@ -191,19 +209,14 @@ func runCommand(argv string, command string, args []string, connection ssh.Chann
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		fmt.Fprintf(connection, "%s", err.Error())
-		return
+		return err
 	}
 	defer stdin.Close()
 
 	go io.Copy(stdin, connection)
 	go io.Copy(connection, stdout)
 
-	err = cmd.Run()
-	if err != nil {
-		fmt.Fprintf(connection, "%s", err.Error())
-		return
-	}
+	return cmd.Run()
 }
 
 func isUrl(data string) (*url.URL, bool) {

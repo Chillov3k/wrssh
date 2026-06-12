@@ -137,7 +137,7 @@ async function createArtifact(event) {
 
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
-  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave"].forEach((key) => {
+  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback"].forEach((key) => {
     payload[key] = formData.get(key) === "on";
   });
   payload.project = pageState.ctx?.project || "";
@@ -150,6 +150,10 @@ async function createArtifact(event) {
 
   if (payload.lzma && !payload.upx) {
     output.textContent = "LZMA exists in rssh only together with UPX. Enable UPX or disable LZMA.";
+    return;
+  }
+  if (payload.busyBoxFallback && payload.goos !== "linux") {
+    output.textContent = "BusyBox fallback is only available for Linux artifacts.";
     return;
   }
 

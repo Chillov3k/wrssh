@@ -540,6 +540,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		DisableLibC      bool   `json:"disableLibC"`
 		UseHostHeader    bool   `json:"useHostHeader"`
 		NoHistorySave    bool   `json:"noHistorySave"`
+		BusyBoxFallback  bool   `json:"busyBoxFallback"`
 		RawDownload      bool   `json:"rawDownload"`
 		UseKerberos      bool   `json:"useKerberos"`
 		VersionString    string `json:"versionString"`
@@ -607,6 +608,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		RawDownload:       request.RawDownload,
 		UseHostHeader:     request.UseHostHeader,
 		NoHistorySave:     request.NoHistorySave,
+		BusyBoxFallback:   request.BusyBoxFallback,
 		WorkingDirectory:  strings.TrimSpace(request.WorkingDirectory),
 		NTLMProxyCreds:    strings.TrimSpace(request.NTLMProxyCreds),
 		VersionString:     strings.TrimSpace(request.VersionString),

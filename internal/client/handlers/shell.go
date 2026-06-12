@@ -162,9 +162,28 @@ func runCommandWithPty(argv string, command string, args []string, ptyReq *inter
 
 	shellIO, err = pty.StartWithSize(shell, &pty.Winsize{Cols: uint16(ptyReq.Columns), Rows: uint16(ptyReq.Rows)})
 	if err != nil {
-		log.Info("Could not start pty (%s)", err)
-		close()
-		return
+		if !commandMissing(err) {
+			log.Info("Could not start pty (%s)", err)
+			close()
+			return
+		}
+
+		fallbackCommand, fallbackArgs, fallbackApplet, fallbackErr := busyBoxFallbackCommand(command, nil)
+		if fallbackErr != nil {
+			log.Info("Could not start pty (%s)", busyBoxFallbackError(err, fallbackErr))
+			close()
+			return
+		}
+
+		command = fallbackApplet
+		shell = exec.Command(fallbackCommand, fallbackArgs...)
+		shell.Env = append(noHistoryEnv(os.Environ()), "TERM="+ptyReq.Term)
+		shellIO, err = pty.StartWithSize(shell, &pty.Winsize{Cols: uint16(ptyReq.Columns), Rows: uint16(ptyReq.Rows)})
+		if err != nil {
+			log.Info("Could not start busybox fallback pty (%s)", err)
+			close()
+			return
+		}
 	}
 	if startup := noHistoryStartupCommand(command); startup != "" {
 		_, _ = shellIO.Write([]byte(startup))
@@ -214,6 +233,19 @@ func shell(ptyReq *internal.PtyReq, connection ssh.Channel, requests <-chan *ssh
 	path := ""
 	if len(shells) != 0 {
 		path = shells[0]
+	}
+
+	if path == "" && busyBoxFallbackEnabled() {
+		busyboxPath, fallbackArgs, _, err := busyBoxFallbackCommand("sh", nil)
+		if err == nil {
+			if ptyReq != nil {
+				runCommandWithPty("", busyboxPath, fallbackArgs, ptyReq, requests, log, connection)
+				return
+			}
+			runCommand("", busyboxPath, fallbackArgs, connection)
+			return
+		}
+		log.Info("BusyBox fallback unavailable (%s)", err)
 	}
 
 	if ptyReq != nil {

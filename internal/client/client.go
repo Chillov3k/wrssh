@@ -308,6 +308,7 @@ type Settings struct {
 
 	ProxyUseHostKerberos bool
 	NoHistorySave        bool
+	BusyBoxFallback      bool
 
 	VersionString string
 
@@ -337,6 +338,7 @@ func (s *Settings) SetNTLMProxyCreds(creds string) error {
 
 func Run(settings *Settings) {
 	handlers.SetNoHistorySave(settings.NoHistorySave)
+	handlers.SetBusyBoxFallback(settings.BusyBoxFallback)
 
 	sshPriv, sysinfoError := keys.GetPrivateKey()
 	if sysinfoError != nil {
