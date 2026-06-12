@@ -21,6 +21,10 @@ func clientHostname() (string, error) {
 		return shortHostname, nil
 	}
 
+	if hostname, err := windowsLegacyHostByName(shortHostname); err == nil && isQualifiedHostname(hostname) {
+		return cleanHostname(hostname), nil
+	}
+
 	if canonical, err := windowsCanonicalName(shortHostname); err == nil && isQualifiedHostname(canonical) {
 		return cleanHostname(canonical), nil
 	}
@@ -67,6 +71,23 @@ func windowsComputerName(nameType uint32) (string, error) {
 			return "", err
 		}
 	}
+}
+
+func windowsLegacyHostByName(hostname string) (string, error) {
+	var data windows.WSAData
+	if err := windows.WSAStartup(0x202, &data); err != nil {
+		return "", err
+	}
+	defer windows.WSACleanup()
+
+	hostent, err := windows.GetHostByName(hostname)
+	if err != nil {
+		return "", err
+	}
+	if hostent == nil || hostent.Name == nil {
+		return "", nil
+	}
+	return cleanHostname(windows.BytePtrToString(hostent.Name)), nil
 }
 
 func windowsCanonicalName(hostname string) (string, error) {
