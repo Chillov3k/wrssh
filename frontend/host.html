@@ -127,6 +127,43 @@
               <div id="commandTemplates" class="command-grid"></div>
             </div>
 
+            <div class="subpanel module-panel">
+              <div class="subpanel-header">
+                <div>
+                  <p class="eyebrow">Subsystems</p>
+                  <h4>Modules</h4>
+                </div>
+                <button id="refreshModulesButton" class="ghost-button" type="button">Refresh</button>
+              </div>
+              <div id="moduleList" class="module-list"></div>
+              <form id="moduleRunForm" class="module-run-form">
+                <label class="field-stack">
+                  <span>Module</span>
+                  <select id="moduleSelect" name="module"></select>
+                </label>
+                <label class="field-stack field-wide">
+                  <span>Args</span>
+                  <input id="moduleArgsInput" name="args" type="text" placeholder="-h localhost -p 80,443 --json" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field-stack">
+                  <span>Timeout Seconds</span>
+                  <input id="moduleTimeoutInput" name="timeoutSeconds" type="number" min="1" max="600" value="60">
+                </label>
+                <label class="field-stack">
+                  <span>Output Limit Bytes</span>
+                  <input id="moduleOutputLimitInput" name="outputLimitBytes" type="number" min="1024" max="4194304" value="1048576">
+                </label>
+                <label class="field-stack field-wide">
+                  <span>Stdin</span>
+                  <textarea id="moduleStdinInput" name="stdin" rows="4" placeholder="optional stdin"></textarea>
+                </label>
+                <div class="inline-actions field-wide">
+                  <button id="runModuleButton" class="action-button" type="submit">Run Module</button>
+                </div>
+              </form>
+              <pre id="moduleOutput" class="output-block small-output"></pre>
+            </div>
+
             <div id="hostMetadataPanel" class="subpanel hidden">
               <div class="subpanel-header">
                 <div>

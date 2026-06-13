@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -34,6 +35,11 @@ var (
 	validArtifactName     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	validWorkingDirectory = regexp.MustCompile(`^[A-Za-z0-9_./~:@+\\ -]{1,255}$`)
 	singleTokenBuildValue = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]+$`)
+
+	allowedModuleBuildTags = map[string]struct{}{
+		"pscan":   {},
+		"execass": {},
+	}
 )
 
 type BuildConfig struct {
@@ -56,6 +62,7 @@ type BuildConfig struct {
 	UseHostHeader   bool
 	NoHistorySave   bool
 	BusyBoxFallback bool
+	BuildTags       []string
 
 	WorkingDirectory string
 
@@ -71,6 +78,11 @@ func Build(config BuildConfig) (string, error) {
 	if err := validateBuildConfig(config); err != nil {
 		return "", err
 	}
+	buildTags, err := normalizeModuleBuildTags(config.BuildTags)
+	if err != nil {
+		return "", err
+	}
+	config.BuildTags = buildTags
 
 	if len(config.GOARCH) != 0 && !validArchs[config.GOARCH] {
 		return "", fmt.Errorf("GOARCH supplied is not valid: %s", config.GOARCH)
@@ -157,7 +169,6 @@ func Build(config BuildConfig) (string, error) {
 
 	if config.SharedLibrary {
 		buildArguments = append(buildArguments, "-buildmode=c-shared")
-		buildArguments = append(buildArguments, "-tags=cshared")
 		f.FileType = "shared-object"
 		if f.Goos != "windows" {
 			f.FilePath += ".so"
@@ -165,6 +176,13 @@ func Build(config BuildConfig) (string, error) {
 			f.FilePath += ".dll"
 		}
 
+	}
+	goBuildTags := append([]string(nil), config.BuildTags...)
+	if config.SharedLibrary {
+		goBuildTags = append(goBuildTags, "cshared")
+	}
+	if len(goBuildTags) > 0 {
+		buildArguments = append(buildArguments, "-tags="+strings.Join(goBuildTags, ","))
 	}
 
 	newPrivateKey, err := internal.GeneratePrivateKey()
@@ -490,6 +508,9 @@ func validateBuildConfig(config BuildConfig) error {
 	if config.WorkingDirectory != "" && !validWorkingDirectory.MatchString(config.WorkingDirectory) {
 		return errors.New("working directory contains unsupported characters")
 	}
+	if _, err := normalizeModuleBuildTags(config.BuildTags); err != nil {
+		return err
+	}
 	for field, value := range map[string]string{
 		"callback address": config.ConnectBackAdress,
 		"proxy":            config.Proxy,
@@ -507,6 +528,27 @@ func validateBuildConfig(config BuildConfig) error {
 		}
 	}
 	return nil
+}
+
+func normalizeModuleBuildTags(tags []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			continue
+		}
+		if _, ok := allowedModuleBuildTags[tag]; !ok {
+			return nil, fmt.Errorf("unsupported module build tag %q", tag)
+		}
+		seen[tag] = struct{}{}
+	}
+
+	result := make([]string, 0, len(seen))
+	for tag := range seen {
+		result = append(result, tag)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func hasControlCharacters(value string) bool {

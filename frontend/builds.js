@@ -137,9 +137,10 @@ async function createArtifact(event) {
 
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
-  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback"].forEach((key) => {
+  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback", "pscan", "execass"].forEach((key) => {
     payload[key] = formData.get(key) === "on";
   });
+  payload.buildTags = ["pscan", "execass"].filter((tag) => payload[tag]);
   payload.project = pageState.ctx?.project || "";
 
   payload.connectBackHost = selectedConnectBackHost();

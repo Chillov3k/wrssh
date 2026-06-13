@@ -124,6 +124,65 @@ func (s *Server) handleExecuteConnectionCommand(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *Server) handleListConnectionModules(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
+	if connectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "connection id is required"})
+		return
+	}
+
+	modules, err := s.service.ListModulesOnConnection(r.Context(), connectionID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": modules})
+}
+
+func (s *Server) handleRunConnectionModule(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
+	module := strings.TrimSpace(r.PathValue("module"))
+	if connectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "connection id is required"})
+		return
+	}
+	if module == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "module is required"})
+		return
+	}
+
+	request := struct {
+		Args             []string `json:"args"`
+		Stdin            string   `json:"stdin"`
+		TimeoutSeconds   int      `json:"timeoutSeconds"`
+		OutputLimitBytes int64    `json:"outputLimitBytes"`
+	}{}
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
+		return
+	}
+
+	var stdin io.Reader
+	if request.Stdin != "" {
+		stdin = strings.NewReader(request.Stdin)
+	}
+	result, err := s.service.ExecuteSubsystemOnConnection(r.Context(), connectionID, module, request.Args, stdin, rssh.SubsystemExecutionOptions{
+		Timeout:          time.Duration(request.TimeoutSeconds) * time.Second,
+		OutputLimitBytes: request.OutputLimitBytes,
+	})
+	response := map[string]any{
+		"output":    result.Output,
+		"timedOut":  result.TimedOut,
+		"truncated": result.Truncated,
+	}
+	if err != nil {
+		response["error"] = err.Error()
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (s *Server) handleListConnectionFilesystem(w http.ResponseWriter, r *http.Request) {
 	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
 	if connectionID == "" {

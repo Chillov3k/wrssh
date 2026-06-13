@@ -44,6 +44,16 @@ const elements = {
   sendCtrlCButton: document.getElementById("sendCtrlCButton"),
   closeTerminalButton: document.getElementById("closeTerminalButton"),
   backToHostsLink: document.getElementById("backToHostsLink"),
+  refreshModulesButton: document.getElementById("refreshModulesButton"),
+  moduleList: document.getElementById("moduleList"),
+  moduleRunForm: document.getElementById("moduleRunForm"),
+  moduleSelect: document.getElementById("moduleSelect"),
+  moduleArgsInput: document.getElementById("moduleArgsInput"),
+  moduleTimeoutInput: document.getElementById("moduleTimeoutInput"),
+  moduleOutputLimitInput: document.getElementById("moduleOutputLimitInput"),
+  moduleStdinInput: document.getElementById("moduleStdinInput"),
+  runModuleButton: document.getElementById("runModuleButton"),
+  moduleOutput: document.getElementById("moduleOutput"),
   hostMetadataPanel: document.getElementById("hostMetadataPanel"),
   hostDisplayNameInput: document.getElementById("hostDisplayNameInput"),
   hostTagsInput: document.getElementById("hostTagsInput"),
@@ -106,6 +116,13 @@ const pageState = {
     rows: 36,
     resizeTimer: 0
   },
+  modules: {
+    items: [],
+    loading: false,
+    running: false,
+    error: "",
+    loadedConnectionId: ""
+  },
   filesystem: {
     open: false,
     selectedDirectory: "/",
@@ -128,6 +145,17 @@ elements.closeTerminalButton.addEventListener("click", () => {
 });
 elements.sendCtrlCButton.addEventListener("click", () => sendTerminalInput("\u0003"));
 elements.saveHostMetadataButton.addEventListener("click", saveHostMetadata);
+elements.refreshModulesButton?.addEventListener("click", () => loadModules(true));
+elements.moduleRunForm?.addEventListener("submit", runSelectedModule);
+elements.moduleSelect?.addEventListener("change", renderModules);
+elements.moduleList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-module-select]");
+  if (!button || !elements.moduleSelect) {
+    return;
+  }
+  elements.moduleSelect.value = button.dataset.moduleSelect || "";
+  renderModules();
+});
 if (filesystemAvailable) {
   elements.openFilesystemButton?.addEventListener("click", openFilesystem);
   elements.closeFilesystemButton.addEventListener("click", closeFilesystem);
@@ -179,6 +207,7 @@ initPage({
     }
 
     renderHost();
+    await loadModules(false);
 
     const connection = currentConnection();
     if (connection) {
@@ -259,6 +288,8 @@ function renderHost() {
       </div>
     </article>
   `).join("");
+
+  renderModules();
 }
 
 function currentConnection() {
@@ -271,6 +302,254 @@ function currentRow(connection = currentConnection()) {
 
 function currentCommands(connection = currentConnection()) {
   return hostCommandTemplates(pageState.host, connection, buildJumpTarget(pageState.systemOptions, pageState.host, pageState.ctx?.user));
+}
+
+async function loadModules(force) {
+  if (!elements.moduleList || !pageState.host) {
+    return;
+  }
+
+  const connection = currentConnection();
+  if (!connection) {
+    pageState.modules.items = [];
+    pageState.modules.error = "";
+    pageState.modules.loadedConnectionId = "";
+    renderModules();
+    return;
+  }
+  if (!force && pageState.modules.loadedConnectionId === connection.connectionId) {
+    renderModules();
+    return;
+  }
+
+  pageState.modules.loading = true;
+  pageState.modules.error = "";
+  renderModules();
+  try {
+    const response = await api(moduleAPIPath("", { connectionId: connection.connectionId }));
+    pageState.modules.items = Array.isArray(response.items) ? response.items : [];
+    pageState.modules.loadedConnectionId = connection.connectionId;
+  } catch (error) {
+    pageState.modules.items = [];
+    pageState.modules.error = error.message;
+    pageState.modules.loadedConnectionId = "";
+  } finally {
+    pageState.modules.loading = false;
+    renderModules();
+  }
+}
+
+function renderModules() {
+  if (!elements.moduleList || !elements.moduleSelect || !elements.runModuleButton) {
+    return;
+  }
+
+  const connection = currentConnection();
+  const modules = pageState.modules.items || [];
+  const selectedName = elements.moduleSelect.value;
+  const selected = modules.find((module) => module.name === selectedName) || modules[0] || null;
+
+  elements.refreshModulesButton.disabled = !connection || pageState.modules.loading;
+  elements.moduleRunForm?.classList.toggle("hidden", !connection);
+  elements.moduleSelect.disabled = !connection || modules.length === 0 || pageState.modules.running;
+  elements.runModuleButton.disabled = !connection || !selected || selected.disabled || pageState.modules.running;
+
+  if (!connection) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>Host is offline.</p></div>`;
+    elements.moduleSelect.innerHTML = "";
+    return;
+  }
+
+  if (pageState.modules.loading) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>Loading modules...</p></div>`;
+    return;
+  }
+
+  if (pageState.modules.error) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>${escapeHtml(pageState.modules.error)}</p></div>`;
+    elements.moduleSelect.innerHTML = "";
+    return;
+  }
+
+  elements.moduleSelect.innerHTML = modules.map((module) => (
+    `<option value="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>${escapeHtml(module.name || "unnamed")}</option>`
+  )).join("");
+  if (selected) {
+    elements.moduleSelect.value = selected.name;
+  }
+
+  if (!modules.length) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>No modules reported by this agent.</p></div>`;
+    return;
+  }
+
+  elements.moduleList.innerHTML = modules.map((module) => renderModuleCard(module, selected?.name === module.name)).join("");
+}
+
+function renderModuleCard(module, active) {
+  const tags = [];
+  if (module.dangerous) {
+    tags.push("dangerous");
+  }
+  if (module.disabled) {
+    tags.push("disabled");
+  }
+  (module.buildTags || []).forEach((tag) => tags.push(`tag:${tag}`));
+  (module.platforms || []).forEach((platform) => tags.push(platform));
+
+  const limits = module.limits || {};
+  const limitParts = [];
+  if (limits.timeoutSeconds) {
+    limitParts.push(`${limits.timeoutSeconds}s timeout`);
+  }
+  if (limits.outputBytes) {
+    limitParts.push(`${limits.outputBytes}B output`);
+  }
+  if (limits.stdinBytes) {
+    limitParts.push(`${limits.stdinBytes}B stdin`);
+  }
+
+  return `
+    <article class="module-card ${active ? "active" : ""} ${module.dangerous ? "dangerous" : ""} ${module.disabled ? "disabled" : ""}">
+      <div class="module-card-head">
+        <div>
+          <strong>${escapeHtml(module.name || "unnamed")}</strong>
+          <span>${escapeHtml(module.version ? `v${module.version}` : "")}</span>
+        </div>
+        <button class="ghost-button fs-small-button" type="button" data-module-select="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>Select</button>
+      </div>
+      <p>${escapeHtml(module.description || "No description.")}</p>
+      ${tags.length ? `<div class="tag-list module-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${module.usage ? `<code>${escapeHtml(module.usage)}</code>` : ""}
+      ${limitParts.length ? `<small>${escapeHtml(limitParts.join(" · "))}</small>` : ""}
+    </article>
+  `;
+}
+
+async function runSelectedModule(event) {
+  event.preventDefault();
+  if (!pageState.host || !elements.moduleSelect || !elements.moduleOutput) {
+    return;
+  }
+
+  const connection = currentConnection();
+  const module = elements.moduleSelect.value.trim();
+  if (!connection || !module) {
+    elements.moduleOutput.textContent = "Choose an online connection and module.";
+    return;
+  }
+
+  let args = [];
+  try {
+    args = parseModuleArgs(elements.moduleArgsInput?.value || "");
+  } catch (error) {
+    elements.moduleOutput.textContent = error.message;
+    return;
+  }
+
+  const payload = {
+    connectionId: connection.connectionId,
+    args,
+    stdin: elements.moduleStdinInput?.value || "",
+    timeoutSeconds: numberFieldValue(elements.moduleTimeoutInput, 60),
+    outputLimitBytes: numberFieldValue(elements.moduleOutputLimitInput, 1024 * 1024)
+  };
+
+  pageState.modules.running = true;
+  elements.moduleOutput.textContent = `Running ${module}...`;
+  renderModules();
+  try {
+    const response = await api(moduleAPIPath(`/${encodeURIComponent(module)}/run`), {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const lines = [];
+    if (response.output) {
+      lines.push(response.output);
+    }
+    if (response.timedOut) {
+      lines.push("[timed out]");
+    }
+    if (response.truncated) {
+      lines.push("[output truncated]");
+    }
+    if (response.error) {
+      lines.push(`[error] ${response.error}`);
+    }
+    elements.moduleOutput.textContent = lines.join(lines.length > 1 ? "\n" : "") || "Module completed with no output.";
+  } catch (error) {
+    elements.moduleOutput.textContent = error.message;
+  } finally {
+    pageState.modules.running = false;
+    renderModules();
+  }
+}
+
+function parseModuleArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const char of String(raw || "")) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== "") {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("Unclosed quote in module args.");
+  }
+  if (current !== "") {
+    args.push(current);
+  }
+  return args;
+}
+
+function numberFieldValue(field, fallback) {
+  const value = Number(field?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function moduleAPIPath(suffix = "", params = {}) {
+  const base = withProjectQuery(`/api/hosts/${encodeURIComponent(pageState.host.stableId)}/modules${suffix}`, pageState.ctx?.project || "");
+  const url = new URL(base, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    url.searchParams.set(key, String(value));
+  });
+  return `${url.pathname}${url.search}`;
 }
 
 function openFilesystem() {

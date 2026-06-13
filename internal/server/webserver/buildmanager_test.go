@@ -68,6 +68,22 @@ func TestValidateBuildConfigRejectsMultiLineComment(t *testing.T) {
 	}
 }
 
+func TestNormalizeModuleBuildTags(t *testing.T) {
+	tags, err := normalizeModuleBuildTags([]string{" pscan ", "execass", "pscan", ""})
+	if err != nil {
+		t.Fatalf("normalizeModuleBuildTags returned error: %v", err)
+	}
+	if len(tags) != 2 || tags[0] != "execass" || tags[1] != "pscan" {
+		t.Fatalf("tags = %v, want [execass pscan]", tags)
+	}
+}
+
+func TestValidateBuildConfigRejectsUnsupportedBuildTag(t *testing.T) {
+	if err := validateBuildConfig(BuildConfig{BuildTags: []string{"unsafe"}}); err == nil {
+		t.Fatal("expected unsupported build tag to be rejected")
+	}
+}
+
 func TestPrepareBusyBoxOverlayUsesConfiguredBinary(t *testing.T) {
 	busyboxPath := filepath.Join(t.TempDir(), "busybox-amd64")
 	if err := os.WriteFile(busyboxPath, []byte("fake-busybox"), 0700); err != nil {

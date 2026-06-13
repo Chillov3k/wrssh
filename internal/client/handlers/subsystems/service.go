@@ -3,21 +3,40 @@
 package subsystems
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 
 	"github.com/NHAS/reverse_ssh/internal/terminal"
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-type service bool
+type serviceModule struct{}
 
-func (s *service) Execute(line terminal.ParsedLine, connection ssh.Channel, subsystemReq *ssh.Request) error {
-	subsystemReq.Reply(true, nil)
+func newServiceModule() Module {
+	return &serviceModule{}
+}
+
+func (s *serviceModule) Manifest() Manifest {
+	return Manifest{
+		Name:        "service",
+		Description: "Install or remove the client as a Windows service.",
+		Usage:       "service [--name <name>] [--install [path] | --uninstall]",
+		Dangerous:   true,
+		Platforms:   []string{"windows"},
+		Limits: ModuleLimits{
+			TimeoutSeconds: 30,
+			OutputBytes:    64 * 1024,
+			MaxArgs:        6,
+		},
+	}
+}
+
+func (s *serviceModule) Run(_ context.Context, _ ModuleIO, args []string) error {
+	line := terminal.ParseLine("service "+joinArgsForParse(args), 0)
 
 	name, err := line.GetArgString("name")
 	if err == terminal.ErrFlagNotSet {
@@ -69,7 +88,7 @@ func (s *service) Execute(line terminal.ParsedLine, connection ssh.Channel, subs
 	))
 }
 
-func (s *service) installService(name, location string) error {
+func (s *serviceModule) installService(name, location string) error {
 
 	m, err := mgr.Connect()
 	if err != nil {
@@ -102,7 +121,7 @@ func (s *service) installService(name, location string) error {
 
 }
 
-func (s *service) uninstallService(name string) error {
+func (s *serviceModule) uninstallService(name string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return err

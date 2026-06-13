@@ -36,4 +36,12 @@ func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
 	if help["busybox-fallback"] != "Embed a Linux BusyBox fallback for distroless targets where shell or common command executables are missing" {
 		t.Fatalf("unexpected busybox-fallback help: %q", help["busybox-fallback"])
 	}
+
+	if help["pscan"] != "Compile the optional TCP connect scanner subsystem module into the client" {
+		t.Fatalf("unexpected pscan help: %q", help["pscan"])
+	}
+
+	if help["execass"] != "Compile the optional Windows-only execution-assist subsystem stub into the client" {
+		t.Fatalf("unexpected execass help: %q", help["execass"])
+	}
 }

@@ -76,6 +76,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/hosts/{stableID}/filesystem/download", s.requireUser(http.HandlerFunc(s.handleHostFilesystemDownload)))
 	mux.Handle("GET /api/hosts/{stableID}/filesystem/preview", s.requireUser(http.HandlerFunc(s.handleHostFilesystemPreview)))
 	mux.Handle("POST /api/hosts/{stableID}/filesystem/upload", s.requireUser(http.HandlerFunc(s.handleHostFilesystemUpload)))
+	mux.Handle("GET /api/hosts/{stableID}/modules", s.requireUser(http.HandlerFunc(s.handleHostModules)))
+	mux.Handle("POST /api/hosts/{stableID}/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostModule)))
 	mux.Handle("POST /api/hosts/exec", s.requireUser(http.HandlerFunc(s.handleExecuteHosts)))
 	mux.Handle("PATCH /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleUpdateHost)))
 	mux.Handle("DELETE /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleDeleteHost)))
@@ -519,32 +521,35 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 
 	request := struct {
-		Name             string `json:"name"`
-		Comment          string `json:"comment"`
-		Owners           string `json:"owners"`
-		Project          string `json:"project"`
-		GOOS             string `json:"goos"`
-		GOARCH           string `json:"goarch"`
-		GOARM            string `json:"goarm"`
-		ConnectBackHost  string `json:"connectBackHost"`
-		ConnectBackPort  string `json:"connectBackPort"`
-		Transport        string `json:"transport"`
-		Proxy            string `json:"proxy"`
-		SNI              string `json:"sni"`
-		LogLevel         string `json:"logLevel"`
-		WorkingDirectory string `json:"workingDirectory"`
-		SharedObject     bool   `json:"sharedObject"`
-		Garble           bool   `json:"garble"`
-		UPX              bool   `json:"upx"`
-		LZMA             bool   `json:"lzma"`
-		DisableLibC      bool   `json:"disableLibC"`
-		UseHostHeader    bool   `json:"useHostHeader"`
-		NoHistorySave    bool   `json:"noHistorySave"`
-		BusyBoxFallback  bool   `json:"busyBoxFallback"`
-		RawDownload      bool   `json:"rawDownload"`
-		UseKerberos      bool   `json:"useKerberos"`
-		VersionString    string `json:"versionString"`
-		NTLMProxyCreds   string `json:"ntlmProxyCreds"`
+		Name             string   `json:"name"`
+		Comment          string   `json:"comment"`
+		Owners           string   `json:"owners"`
+		Project          string   `json:"project"`
+		GOOS             string   `json:"goos"`
+		GOARCH           string   `json:"goarch"`
+		GOARM            string   `json:"goarm"`
+		ConnectBackHost  string   `json:"connectBackHost"`
+		ConnectBackPort  string   `json:"connectBackPort"`
+		Transport        string   `json:"transport"`
+		Proxy            string   `json:"proxy"`
+		SNI              string   `json:"sni"`
+		LogLevel         string   `json:"logLevel"`
+		WorkingDirectory string   `json:"workingDirectory"`
+		SharedObject     bool     `json:"sharedObject"`
+		Garble           bool     `json:"garble"`
+		UPX              bool     `json:"upx"`
+		LZMA             bool     `json:"lzma"`
+		DisableLibC      bool     `json:"disableLibC"`
+		UseHostHeader    bool     `json:"useHostHeader"`
+		NoHistorySave    bool     `json:"noHistorySave"`
+		BusyBoxFallback  bool     `json:"busyBoxFallback"`
+		Pscan            bool     `json:"pscan"`
+		Execass          bool     `json:"execass"`
+		BuildTags        []string `json:"buildTags"`
+		RawDownload      bool     `json:"rawDownload"`
+		UseKerberos      bool     `json:"useKerberos"`
+		VersionString    string   `json:"versionString"`
+		NTLMProxyCreds   string   `json:"ntlmProxyCreds"`
 	}{}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json payload")
@@ -609,6 +614,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		UseHostHeader:     request.UseHostHeader,
 		NoHistorySave:     request.NoHistorySave,
 		BusyBoxFallback:   request.BusyBoxFallback,
+		BuildTags:         artifactBuildTags(request.BuildTags, request.Pscan, request.Execass),
 		WorkingDirectory:  strings.TrimSpace(request.WorkingDirectory),
 		NTLMProxyCreds:    strings.TrimSpace(request.NTLMProxyCreds),
 		VersionString:     strings.TrimSpace(request.VersionString),
@@ -649,6 +655,17 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		"project":         store.DisplayProjectName(projectName),
 		"clientStableId":  buildResult.ClientStableID,
 	})
+}
+
+func artifactBuildTags(tags []string, pscan, execass bool) []string {
+	out := append([]string(nil), tags...)
+	if pscan {
+		out = append(out, "pscan")
+	}
+	if execass {
+		out = append(out, "execass")
+	}
+	return out
 }
 
 func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {

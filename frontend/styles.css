@@ -2404,6 +2404,87 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.module-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.module-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.module-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  min-width: 0;
+}
+
+.module-card.active {
+  border-color: rgba(11, 99, 215, 0.36);
+  box-shadow: inset 0 0 0 1px rgba(11, 99, 215, 0.08);
+}
+
+.module-card.dangerous {
+  border-color: rgba(190, 24, 93, 0.24);
+}
+
+.module-card.disabled {
+  opacity: 0.72;
+}
+
+.module-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.module-card-head strong {
+  display: block;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.module-card-head span,
+.module-card small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.module-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.module-card code {
+  display: block;
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.82rem;
+}
+
+.module-tags {
+  gap: 6px;
+}
+
+.module-run-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.module-empty {
+  padding: 14px;
+}
+
 .command-card,
 .artifact-link,
 .host-command-preview {
@@ -2570,6 +2651,7 @@ body.auth-pending .overlay {
 .search-input,
 .login-form input,
 .command-card,
+.module-card,
 .artifact-link,
 .host-command-preview,
 .secret-row code {
@@ -2653,6 +2735,7 @@ html[data-theme="dark"] .checklist-item,
 html[data-theme="dark"] .field-note,
 html[data-theme="dark"] .advanced-block,
 html[data-theme="dark"] .command-card,
+html[data-theme="dark"] .module-card,
 html[data-theme="dark"] .artifact-link,
 html[data-theme="dark"] .host-command-preview,
 html[data-theme="dark"] .secret-row code,
@@ -2662,6 +2745,10 @@ html[data-theme="dark"] .field-stack select,
 html[data-theme="dark"] .search-input,
 html[data-theme="dark"] .login-form input {
   background: rgba(17, 27, 42, 0.96);
+}
+
+html[data-theme="dark"] .module-card code {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 html[data-theme="dark"] .bulk-exec-panel {
@@ -2946,6 +3033,7 @@ html[data-theme="dark"] .fs-empty {
   .user-catalog-layout,
   .user-editor-grid,
   .artifact-form,
+  .module-run-form,
   .advanced-grid,
   .detail-grid,
   .detail-grid-wide {
