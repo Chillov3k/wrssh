@@ -28,6 +28,13 @@ type Request struct {
 	Timeout      time.Duration
 	OutputBytes  int64
 	Artifact     []byte
+
+	InProcess    bool
+	Runtime      string
+	ProcessName  string
+	ProcessArgs  string
+	ParentPID    int
+	AssemblyArgs string
 }
 
 func ParseRequest(args []string) (Request, error) {
@@ -45,6 +52,12 @@ func ParseRequest(args []string) (Request, error) {
 	fs.StringVar(&request.SHA256, "sha256", "", "expected artifact SHA-256 hex digest")
 	fs.StringVar(&timeoutRaw, "timeout", DefaultTimeout.String(), "maximum runner timeout")
 	fs.Int64Var(&outputLimit, "output-limit", DefaultOutputBytes, "maximum output bytes")
+	fs.BoolVar(&request.InProcess, "in-process", false, "execute a .NET assembly in the current process")
+	fs.StringVar(&request.Runtime, "runtime", "v4", "CLR runtime to use")
+	fs.StringVar(&request.ProcessName, "process", "notepad.exe", "process name for out-of-process mode")
+	fs.StringVar(&request.ProcessArgs, "process-args", "", "arguments for out-of-process mode")
+	fs.IntVar(&request.ParentPID, "ppid", 0, "parent process ID for out-of-process mode")
+	fs.StringVar(&request.AssemblyArgs, "args", "", "assembly arguments")
 	if err := fs.Parse(args); err != nil {
 		return Request{}, err
 	}
@@ -53,11 +66,23 @@ func ParseRequest(args []string) (Request, error) {
 	}
 
 	request.ArtifactPath = strings.TrimSpace(request.ArtifactPath)
+	request.Runtime = strings.TrimSpace(request.Runtime)
+	request.ProcessName = strings.TrimSpace(request.ProcessName)
+	request.ProcessArgs = strings.TrimSpace(request.ProcessArgs)
 	if request.ArtifactPath == "" && !request.UseStdin {
 		return Request{}, fmt.Errorf("either --artifact or --stdin is required")
 	}
 	if request.ArtifactPath != "" && request.UseStdin {
 		return Request{}, fmt.Errorf("--artifact and --stdin are mutually exclusive")
+	}
+	if request.Runtime == "" {
+		return Request{}, fmt.Errorf("--runtime must not be empty")
+	}
+	if !request.InProcess && request.ProcessName == "" {
+		return Request{}, fmt.Errorf("--process must not be empty")
+	}
+	if request.ParentPID < 0 {
+		return Request{}, fmt.Errorf("--ppid must be non-negative")
 	}
 
 	timeout, err := time.ParseDuration(timeoutRaw)

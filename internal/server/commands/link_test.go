@@ -41,7 +41,7 @@ func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
 		t.Fatalf("unexpected pscan help: %q", help["pscan"])
 	}
 
-	if help["execass"] != "Compile the optional Windows-only execution-assist subsystem stub into the client" {
+	if help["execass"] != "Compile the optional Windows-only execution-assist subsystem into the client" {
 		t.Fatalf("unexpected execass help: %q", help["execass"])
 	}
 }

@@ -20,9 +20,9 @@ func New() *Module {
 func (m *Module) Manifest() subsystems.Manifest {
 	return subsystems.Manifest{
 		Name:        "execass",
-		Description: "Windows-only execution-assist interface stub.",
+		Description: "Windows-only .NET execution-assist interface.",
 		Version:     "1",
-		Usage:       "execass (--artifact <path> | --stdin) --sha256 <digest> [--timeout 30s] [--output-limit bytes]",
+		Usage:       "execass (--artifact <path> | --stdin) [--sha256 <digest>] [--in-process --runtime v4 | --process notepad.exe --process-args '<args>' --ppid <pid>] [--args '<assembly args>'] [--timeout 30s] [--output-limit bytes]",
 		BuildTags:   []string{"execass"},
 		Platforms:   []string{"windows"},
 		Dangerous:   true,

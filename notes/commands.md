@@ -75,4 +75,31 @@ ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J
 ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o StrictHostKeyChecking=accept-new -J admin@46.62.143.173:2301 cb1d6aa519c8f11dad3977a7f3a9f02c18ee17d8 -s pscan -h scanme.nmap.org -p all --timeout 200ms
 ssh root@46.62.143.173 'kill 2544780 2>/dev/null || true; rm -f /tmp/codex-pscan-all-e2e /tmp/codex-pscan-all-e2e.log'
 ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p 2301 admin@46.62.143.173 'link -r codex-pscan-all-e2e'
+git clone --depth 1 https://github.com/nu11zy/rscc.git /private/tmp/rscc-src
+go list -m -versions github.com/Ne0nd0g/go-clr
+go get github.com/Ne0nd0g/go-clr@v1.0.3 github.com/google/shlex@v0.0.0-20191202100458-e7afc7fbc510
+go test -tags execass ./internal/client/handlers/subsystems/execass ./cmd/client
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-client-execass-windows.test.exe
+go test ./...
+go test -tags execass ./...
+go test -tags 'pscan execass' ./...
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe
+make e2e
+(cd e2e && ./e2e)
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new root@46.62.143.173 'hostname; uname -a; command -v docker; docker --version'
+rsync -a --delete --exclude='.git/' --exclude='.env' --exclude='bin/' --exclude='e2e/client' --exclude='e2e/server' --exclude='e2e/e2e' --exclude='e2e/cache/' --exclude='e2e/downloads/' --exclude='e2e/keys/' --exclude='e2e/data.db' --exclude='e2e/authorized_keys' --exclude='e2e/authorized_controllee_keys' --exclude='e2e/id_e2e' --exclude='e2e/id_e2e.pub' ./ root@46.62.143.173:/root/wrssh-e2e-work/
+ssh root@46.62.143.173 'cd /root/wrssh-e2e-work && docker run --rm -v "$PWD:/app" -w /app --entrypoint /bin/bash wrssh-platform:local -lc "export PATH=/usr/local/go/bin:/root/go/bin:/go/bin:\$PATH; go test ./... && go test -tags execass ./... && go test -tags \"pscan execass\" ./... && GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe && make e2e && cd e2e && ./e2e"'
+curl -fsSL https://raw.githubusercontent.com/nu11zy/rscc/main/pkg/agent/internal/sshd/subsystems/execass/execass.go -o work/rscc_execass/execass.go
+curl -fsSL https://raw.githubusercontent.com/nu11zy/rscc/main/pkg/agent/internal/sshd/subsystems/execass/syscalls_windows.go -o work/rscc_execass/syscalls_windows.go
+curl -fsSL https://raw.githubusercontent.com/nu11zy/rscc/main/pkg/agent/internal/sshd/subsystems/execass/zsyscalls_windows.go -o work/rscc_execass/zsyscalls_windows.go
+sed -n '1,260p' work/rscc_execass/execass.go
+sed -n '241,520p' work/rscc_execass/execass.go
+sed -n '1,260p' work/rscc_execass/syscalls_windows.go
+sed -n '1,260p' work/rscc_execass/zsyscalls_windows.go
+go test -tags execass ./internal/client/handlers/subsystems/execass
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-client-execass-windows.test.exe
+go test -tags execass ./...
+go test -tags 'pscan execass' ./...
+go test ./...
 ```

@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	ErrUnsupported    = errors.New("execass is unsupported on this platform")
-	ErrNotImplemented = errors.New("execass runner is not implemented in this ticket")
+	ErrUnsupported = errors.New("execass is unsupported on this platform")
 )
 
 type runner interface {
