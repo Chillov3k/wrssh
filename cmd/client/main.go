@@ -117,6 +117,9 @@ func makeInitialSettings() (*client.Settings, error) {
 }
 
 func main() {
+	if runExecassHelperIfRequested() {
+		return
+	}
 
 	settings, err := makeInitialSettings()
 	if err != nil {

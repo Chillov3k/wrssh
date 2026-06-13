@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,9 +18,15 @@ type runHostModuleRequest struct {
 	ConnectionID     string   `json:"connectionId"`
 	Args             []string `json:"args"`
 	Stdin            string   `json:"stdin"`
+	StdinBase64      string   `json:"stdinBase64"`
 	TimeoutSeconds   int      `json:"timeoutSeconds"`
 	OutputLimitBytes int64    `json:"outputLimitBytes"`
 }
+
+const (
+	maxModuleStdinBytes       = int64(8 * 1024 * 1024)
+	maxModuleRequestBodyBytes = int64(12 * 1024 * 1024)
+)
 
 func (s *Server) handleHostModules(w http.ResponseWriter, r *http.Request) {
 	target, ok := s.resolveHostModuleTarget(w, r, r.URL.Query().Get("connectionId"))
@@ -53,8 +62,14 @@ func (s *Server) handleHostModules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxModuleRequestBodyBytes)
 	request := runHostModuleRequest{}
 	if err := decodeJSON(r, &request); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "module request body is too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid json payload")
 		return
 	}
@@ -67,6 +82,11 @@ func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
 
 	target, ok := s.resolveHostModuleTarget(w, r, request.ConnectionID)
 	if !ok {
+		return
+	}
+	stdin, stdinErr := decodeModuleStdin(request.Stdin, request.StdinBase64)
+	if stdinErr != nil {
+		writeError(w, moduleStdinStatusCode(stdinErr), stdinErr.Error())
 		return
 	}
 
@@ -88,11 +108,11 @@ func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
 		err    error
 	)
 	if target.useRuntime {
-		result, err = s.runtimes.RunModule(r.Context(), target.projectName, target.connectionID, module, request.Args, request.Stdin, opts)
+		result, err = s.runtimes.RunModule(r.Context(), target.projectName, target.connectionID, module, request.Args, stdin, opts)
 	} else {
 		var stdinReader io.Reader
-		if request.Stdin != "" {
-			stdinReader = strings.NewReader(request.Stdin)
+		if len(stdin) > 0 {
+			stdinReader = bytes.NewReader(stdin)
 		}
 		result, err = s.rsshService.ExecuteSubsystemOnConnection(r.Context(), target.connectionID, module, request.Args, stdinReader, opts)
 	}
@@ -110,6 +130,35 @@ func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
 		response["error"] = err.Error()
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func decodeModuleStdin(text, encoded string) ([]byte, error) {
+	encoded = strings.TrimSpace(encoded)
+	if text != "" && encoded != "" {
+		return nil, fmt.Errorf("use either stdin or stdinBase64, not both")
+	}
+
+	var stdin []byte
+	if encoded != "" {
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("invalid stdinBase64")
+		}
+		stdin = decoded
+	} else if text != "" {
+		stdin = []byte(text)
+	}
+	if int64(len(stdin)) > maxModuleStdinBytes {
+		return nil, fmt.Errorf("module stdin exceeds maximum size of %d bytes", maxModuleStdinBytes)
+	}
+	return stdin, nil
+}
+
+func moduleStdinStatusCode(err error) int {
+	if strings.Contains(err.Error(), "exceeds") {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }
 
 func (s *Server) resolveHostModuleTarget(w http.ResponseWriter, r *http.Request, requestedConnectionID string) (hostFileTarget, bool) {

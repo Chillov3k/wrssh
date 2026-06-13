@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,7 +127,7 @@ func (m *Manager) ListModules(ctx context.Context, projectName, connectionID str
 	return response.Items, nil
 }
 
-func (m *Manager) RunModule(ctx context.Context, projectName, connectionID, module string, args []string, stdin string, opts rssh.SubsystemExecutionOptions) (rssh.SubsystemExecution, error) {
+func (m *Manager) RunModule(ctx context.Context, projectName, connectionID, module string, args []string, stdin []byte, opts rssh.SubsystemExecutionOptions) (rssh.SubsystemExecution, error) {
 	response := struct {
 		Output    string `json:"output"`
 		TimedOut  bool   `json:"timedOut"`
@@ -135,7 +136,7 @@ func (m *Manager) RunModule(ctx context.Context, projectName, connectionID, modu
 	}{}
 	err := m.runtimeJSON(ctx, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "modules", url.PathEscape(module), "run"), map[string]any{
 		"args":             args,
-		"stdin":            stdin,
+		"stdinBase64":      base64.StdEncoding.EncodeToString(stdin),
 		"timeoutSeconds":   int(opts.Timeout.Seconds()),
 		"outputLimitBytes": opts.OutputLimitBytes,
 	}, &response)

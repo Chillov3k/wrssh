@@ -1,6 +1,6 @@
 //go:build execass
 
-package execass
+package engine
 
 import (
 	"context"
@@ -13,6 +13,10 @@ var (
 	ErrUnsupported = errors.New("execass is unsupported on this platform")
 )
 
-type runner interface {
+type Runner interface {
 	Run(context.Context, Request, subsystems.ModuleIO) error
+}
+
+func NewRunner() Runner {
+	return newRunner()
 }

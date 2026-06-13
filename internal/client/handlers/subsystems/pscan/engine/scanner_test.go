@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 import (
 	"context"
@@ -78,8 +78,6 @@ func TestScanCollectsWebTitle(t *testing.T) {
 	defer server.Close()
 
 	addr := server.Listener.Addr().(*net.TCPAddr)
-	webPorts[addr.Port] = struct{}{}
-	defer delete(webPorts, addr.Port)
 
 	cfg := Config{
 		Hosts:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
@@ -104,5 +102,25 @@ func TestScanCollectsWebTitle(t *testing.T) {
 	}
 	if results[0].Web.Title != "Test Portal" {
 		t.Fatalf("title = %q, want Test Portal", results[0].Web.Title)
+	}
+}
+
+func TestScanLimiterUsesSingleBurst(t *testing.T) {
+	limiter := newScanLimiter(10)
+	if limiter == nil {
+		t.Fatalf("expected limiter")
+	}
+	if got, want := limiter.Burst(), 1; got != want {
+		t.Fatalf("limiter burst = %d, want %d", got, want)
+	}
+}
+
+func TestWebProbeTransportDoesNotUseEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+
+	transport := newWebProbeTransport(time.Second)
+	if transport.Proxy != nil {
+		t.Fatalf("expected direct web probe transport without environment proxy")
 	}
 }

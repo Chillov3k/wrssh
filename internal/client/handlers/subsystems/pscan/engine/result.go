@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 type Result struct {
 	IP         string   `json:"ip"`

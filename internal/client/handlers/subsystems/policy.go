@@ -23,6 +23,7 @@ type RunPolicy struct {
 	Disabled     bool
 	Dangerous    bool
 	NoOutputCap  bool
+	NoStdinCap   bool
 	NoTimeoutCap bool
 }
 
@@ -75,8 +76,12 @@ func policyFor(manifest Manifest) RunPolicy {
 	}
 
 	stdinBytes := DefaultModuleStdinBytes
+	noStdinCap := false
 	if manifest.Limits.StdinBytes > 0 {
 		stdinBytes = manifest.Limits.StdinBytes
+	} else if manifest.Limits.StdinBytes < 0 {
+		stdinBytes = 0
+		noStdinCap = true
 	}
 
 	maxArgs := DefaultModuleMaxArgs
@@ -92,6 +97,7 @@ func policyFor(manifest Manifest) RunPolicy {
 		Disabled:     manifest.Disabled,
 		Dangerous:    manifest.Dangerous,
 		NoOutputCap:  noOutputCap,
+		NoStdinCap:   noStdinCap,
 		NoTimeoutCap: timeout == 0,
 	}
 }

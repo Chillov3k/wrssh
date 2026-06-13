@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 import (
 	"context"
@@ -19,26 +19,8 @@ import (
 const maxWebProbeBody = 128 * 1024
 
 var (
-	titlePattern = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	webPorts     = map[int]struct{}{
-		80:    {},
-		81:    {},
-		443:   {},
-		7001:  {},
-		8000:  {},
-		8001:  {},
-		8008:  {},
-		8080:  {},
-		8081:  {},
-		8088:  {},
-		8089:  {},
-		8443:  {},
-		8888:  {},
-		9000:  {},
-		9200:  {},
-		9443:  {},
-		10000: {},
-	}
+	titlePattern     = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	priorityWebPorts = []int{80, 443, 8080, 8443, 81, 7001, 8000, 8001, 8008, 8081, 8088, 8089, 8888, 9000, 9200, 9443, 10000}
 )
 
 type WebInfo struct {
@@ -49,25 +31,12 @@ type WebInfo struct {
 	Server     string `json:"server,omitempty"`
 }
 
-func isWebPort(port int) bool {
-	_, ok := webPorts[port]
-	return ok
-}
-
 func probeWeb(ctx context.Context, host net.IP, port int, timeout time.Duration) (WebInfo, bool) {
-	if !isWebPort(port) {
-		return WebInfo{}, false
-	}
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 
-	schemes := []string{"http", "https"}
-	if port == 443 || port == 8443 || port == 9443 {
-		schemes = []string{"https", "http"}
-	}
-
-	for _, scheme := range schemes {
+	for _, scheme := range webProbeSchemes(port) {
 		info, ok := probeWebScheme(ctx, host, port, scheme, timeout)
 		if ok {
 			return info, true
@@ -76,18 +45,20 @@ func probeWeb(ctx context.Context, host net.IP, port int, timeout time.Duration)
 	return WebInfo{}, false
 }
 
+func webProbeSchemes(port int) []string {
+	switch port {
+	case 443, 8443, 9443:
+		return []string{"https", "http"}
+	default:
+		return []string{"http", "https"}
+	}
+}
+
 func probeWebScheme(ctx context.Context, host net.IP, port int, scheme string, timeout time.Duration) (WebInfo, bool) {
 	target := net.JoinHostPort(host.String(), strconv.Itoa(port))
 	url := fmt.Sprintf("%s://%s/", scheme, target)
 
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout: timeout,
-		}).DialContext,
-		TLSHandshakeTimeout: timeout,
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-	}
+	transport := newWebProbeTransport(timeout)
 	defer transport.CloseIdleConnections()
 
 	client := &http.Client{
@@ -118,6 +89,16 @@ func probeWebScheme(ctx context.Context, host net.IP, port int, scheme string, t
 		Title:      extractTitle(string(body)),
 		Server:     strings.TrimSpace(resp.Header.Get("Server")),
 	}, true
+}
+
+func newWebProbeTransport(timeout time.Duration) *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: timeout,
+		}).DialContext,
+		TLSHandshakeTimeout: timeout,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+	}
 }
 
 func extractTitle(body string) string {

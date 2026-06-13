@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/NHAS/reverse_ssh/internal/client/handlers/subsystems"
+	"github.com/NHAS/reverse_ssh/internal/client/handlers/subsystems/pscan/engine"
 )
 
 type Module struct{}
@@ -25,7 +26,7 @@ func (m *Module) Manifest() subsystems.Manifest {
 		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [-t 600] [-time 3] [--json]",
 		BuildTags:   []string{"pscan"},
 		Limits: subsystems.ModuleLimits{
-			TimeoutSeconds: int(MaxScanDuration.Seconds()),
+			TimeoutSeconds: int(engine.MaxScanDuration.Seconds()),
 			OutputBytes:    1024 * 1024,
 			MaxArgs:        16,
 		},
@@ -33,13 +34,13 @@ func (m *Module) Manifest() subsystems.Manifest {
 }
 
 func (m *Module) Run(ctx context.Context, io subsystems.ModuleIO, args []string) error {
-	cfg, err := ParseArgs(args)
+	cfg, err := engine.ParseArgs(args)
 	if err != nil {
 		return err
 	}
 
 	encoder := json.NewEncoder(io)
-	return Scan(ctx, cfg, func(result Result) error {
+	return engine.Scan(ctx, cfg, func(result engine.Result) error {
 		if cfg.JSON {
 			return encoder.Encode(result)
 		}
@@ -51,7 +52,7 @@ func (m *Module) Run(ctx context.Context, io subsystems.ModuleIO, args []string)
 	})
 }
 
-func formatOpenResult(result Result) string {
+func formatOpenResult(result engine.Result) string {
 	parts := []string{fmt.Sprintf("%s:%d open", result.IP, result.Port)}
 	if result.Web != nil {
 		parts = append(parts, result.Web.Scheme)

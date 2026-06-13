@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 import (
 	"flag"
@@ -286,12 +286,28 @@ func parsePorts(raw string) ([]int, error) {
 			}
 		}
 	}
+	return sortPortsByScanPriority(seen), nil
+}
+
+func sortPortsByScanPriority(seen map[int]struct{}) []int {
 	ports := make([]int, 0, len(seen))
-	for port := range seen {
-		ports = append(ports, port)
+	used := make(map[int]struct{}, len(priorityWebPorts))
+	for _, port := range priorityWebPorts {
+		if _, ok := seen[port]; ok {
+			ports = append(ports, port)
+			used[port] = struct{}{}
+		}
 	}
-	sort.Ints(ports)
-	return ports, nil
+
+	remaining := make([]int, 0, len(seen)-len(ports))
+	for port := range seen {
+		if _, ok := used[port]; ok {
+			continue
+		}
+		remaining = append(remaining, port)
+	}
+	sort.Ints(remaining)
+	return append(ports, remaining...)
 }
 
 func parsePort(raw string) (int, error) {

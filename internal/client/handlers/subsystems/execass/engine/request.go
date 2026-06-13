@@ -1,6 +1,6 @@
 //go:build execass
 
-package execass
+package engine
 
 import (
 	"bytes"
@@ -19,6 +19,7 @@ const (
 	DefaultTimeout     = 30 * time.Second
 	MaxTimeout         = 2 * time.Minute
 	DefaultOutputBytes = int64(1024 * 1024)
+	DefaultProcessName = "notepad.exe"
 )
 
 type Request struct {
@@ -54,9 +55,9 @@ func ParseRequest(args []string) (Request, error) {
 	fs.Int64Var(&outputLimit, "output-limit", DefaultOutputBytes, "maximum output bytes")
 	fs.BoolVar(&request.InProcess, "in-process", false, "execute a .NET assembly in the current process")
 	fs.StringVar(&request.Runtime, "runtime", "v4", "CLR runtime to use")
-	fs.StringVar(&request.ProcessName, "process", "notepad.exe", "process name for out-of-process mode")
-	fs.StringVar(&request.ProcessArgs, "process-args", "", "arguments for out-of-process mode")
-	fs.IntVar(&request.ParentPID, "ppid", 0, "parent process ID for out-of-process mode")
+	fs.StringVar(&request.ProcessName, "process", DefaultProcessName, "legacy process name flag; custom process injection is not supported")
+	fs.StringVar(&request.ProcessArgs, "process-args", "", "legacy process arguments flag; custom process injection is not supported")
+	fs.IntVar(&request.ParentPID, "ppid", 0, "legacy parent process ID flag; custom process injection is not supported")
 	fs.StringVar(&request.AssemblyArgs, "args", "", "assembly arguments")
 	if err := fs.Parse(args); err != nil {
 		return Request{}, err

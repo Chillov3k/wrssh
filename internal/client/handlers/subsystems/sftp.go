@@ -24,6 +24,7 @@ func (s *sftpModule) Manifest() Manifest {
 		Limits: ModuleLimits{
 			TimeoutSeconds: -1,
 			OutputBytes:    -1,
+			StdinBytes:     -1,
 			MaxArgs:        0,
 		},
 	}

@@ -46,33 +46,38 @@ func (m *sshModuleIO) Stderr() io.Writer {
 
 type cappedModuleIO struct {
 	base     ModuleIO
+	stdin    *cappedReader
 	stdout   *cappedWriter
 	stderr   *cappedWriter
 	stderrIO io.Writer
 }
 
-func newCappedModuleIO(base ModuleIO, limit int64) (*cappedModuleIO, error) {
+func newCappedModuleIO(base ModuleIO, outputLimit, stdinLimit int64) (*cappedModuleIO, error) {
 	if base == nil {
 		return nil, fmt.Errorf("nil module io")
 	}
-	if limit <= 0 {
-		return &cappedModuleIO{
-			base:     base,
-			stderrIO: base.Stderr(),
-		}, nil
-	}
-	shared := &outputBudget{remaining: limit}
-	stdout := &cappedWriter{writer: base, budget: shared}
-	stderr := &cappedWriter{writer: base.Stderr(), budget: shared}
-	return &cappedModuleIO{
+	result := &cappedModuleIO{
 		base:     base,
-		stdout:   stdout,
-		stderr:   stderr,
-		stderrIO: stderr,
-	}, nil
+		stderrIO: base.Stderr(),
+	}
+	if stdinLimit > 0 {
+		result.stdin = &cappedReader{reader: base, remaining: stdinLimit, limit: stdinLimit}
+	}
+	if outputLimit <= 0 {
+		return result, nil
+	}
+
+	shared := &outputBudget{remaining: outputLimit}
+	result.stdout = &cappedWriter{writer: base, budget: shared}
+	result.stderr = &cappedWriter{writer: base.Stderr(), budget: shared}
+	result.stderrIO = result.stderr
+	return result, nil
 }
 
 func (m *cappedModuleIO) Read(p []byte) (int, error) {
+	if m.stdin != nil {
+		return m.stdin.Read(p)
+	}
 	return m.base.Read(p)
 }
 
@@ -102,6 +107,35 @@ type outputBudget struct {
 	mu        sync.Mutex
 	remaining int64
 	truncated bool
+}
+
+type cappedReader struct {
+	reader    io.Reader
+	remaining int64
+	limit     int64
+	exceeded  bool
+}
+
+func (r *cappedReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.remaining <= 0 {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			r.exceeded = true
+			return 0, fmt.Errorf("module stdin exceeded %d bytes", r.limit)
+		}
+		return 0, err
+	}
+
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 type cappedWriter struct {

@@ -1,6 +1,6 @@
 //go:build execass && !windows
 
-package execass
+package engine
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 type platformRunner struct{}
 
-func newRunner() runner {
+func newRunner() Runner {
 	return platformRunner{}
 }
 

@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 import "testing"
 
@@ -23,7 +23,7 @@ func TestParseArgs(t *testing.T) {
 	if got, want := len(cfg.Ports), 3; got != want {
 		t.Fatalf("port count = %d, want %d", got, want)
 	}
-	if cfg.Ports[0] != 22 || cfg.Ports[1] != 80 || cfg.Ports[2] != 81 {
+	if cfg.Ports[0] != 80 || cfg.Ports[1] != 81 || cfg.Ports[2] != 22 {
 		t.Fatalf("ports = %v", cfg.Ports)
 	}
 	if !cfg.JSON {
@@ -41,7 +41,7 @@ func TestParseArgsDefaultsPortsAndResolvesHostnames(t *testing.T) {
 	if len(cfg.Hosts) == 0 {
 		t.Fatalf("expected localhost to resolve at least one host")
 	}
-	if got, want := cfg.Ports, []int{21, 22, 80, 81, 135, 139, 443, 445, 1433, 1521, 3306, 5432, 6379, 7001, 8000, 8080, 8089, 9000, 9200, 11211, 27017}; !sameInts(got, want) {
+	if got, want := cfg.Ports, []int{80, 443, 8080, 81, 7001, 8000, 8089, 9000, 9200, 21, 22, 135, 139, 445, 1433, 1521, 3306, 5432, 6379, 11211, 27017}; !sameInts(got, want) {
 		t.Fatalf("ports = %v, want %v", got, want)
 	}
 }
@@ -59,8 +59,13 @@ func TestParseArgsAcceptsFscanAliasesAndAllPorts(t *testing.T) {
 	if got, want := len(cfg.Ports), 65535; got != want {
 		t.Fatalf("port count = %d, want %d", got, want)
 	}
-	if cfg.Ports[0] != 1 || cfg.Ports[len(cfg.Ports)-1] != 65535 {
-		t.Fatalf("ports bounds = %d..%d, want 1..65535", cfg.Ports[0], cfg.Ports[len(cfg.Ports)-1])
+	for i, port := range priorityWebPorts {
+		if cfg.Ports[i] != port {
+			t.Fatalf("priority port at index %d = %d, want %d", i, cfg.Ports[i], port)
+		}
+	}
+	if cfg.Ports[len(priorityWebPorts)] != 1 || cfg.Ports[len(cfg.Ports)-1] != 65535 {
+		t.Fatalf("ports remaining bounds = %d..%d, want 1..65535", cfg.Ports[len(priorityWebPorts)], cfg.Ports[len(cfg.Ports)-1])
 	}
 	if cfg.Workers != 7 {
 		t.Fatalf("workers = %d, want 7", cfg.Workers)

@@ -61,7 +61,11 @@ func RunSubsystems(connection ssh.Channel, req *ssh.Request) error {
 	defer cancel()
 
 	moduleIO := NewModuleIO(connection, connection, connection, connection.Stderr())
-	cappedIO, err := newCappedModuleIO(moduleIO, policy.OutputBytes)
+	stdinLimit := policy.StdinBytes
+	if policy.NoStdinCap {
+		stdinLimit = 0
+	}
+	cappedIO, err := newCappedModuleIO(moduleIO, policy.OutputBytes, stdinLimit)
 	if err != nil {
 		req.Reply(false, []byte(err.Error()))
 		return err

@@ -52,6 +52,7 @@ const elements = {
   moduleTimeoutInput: document.getElementById("moduleTimeoutInput"),
   moduleOutputLimitInput: document.getElementById("moduleOutputLimitInput"),
   moduleStdinInput: document.getElementById("moduleStdinInput"),
+  moduleStdinFileInput: document.getElementById("moduleStdinFileInput"),
   runModuleButton: document.getElementById("runModuleButton"),
   moduleOutput: document.getElementById("moduleOutput"),
   hostMetadataPanel: document.getElementById("hostMetadataPanel"),
@@ -82,6 +83,8 @@ const elements = {
 const terminalView = new TerminalView(elements.terminalViewport, elements.terminalOutput);
 const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_MODULE_STDIN_LABEL = "8 MiB";
 const filesystemAvailable = Boolean(
   elements.fileSystemOverlay &&
   elements.closeFilesystemButton &&
@@ -345,9 +348,10 @@ function renderModules() {
   }
 
   const connection = currentConnection();
-  const modules = pageState.modules.items || [];
+  const row = currentRow(connection);
+  const modules = (pageState.modules.items || []).map((module) => moduleForCurrentHost(module, row));
   const selectedName = elements.moduleSelect.value;
-  const selected = modules.find((module) => module.name === selectedName) || modules[0] || null;
+  const selected = modules.find((module) => module.name === selectedName) || modules.find((module) => !module.disabled) || modules[0] || null;
 
   elements.refreshModulesButton.disabled = !connection || pageState.modules.loading;
   elements.moduleRunForm?.classList.toggle("hidden", !connection);
@@ -419,11 +423,30 @@ function renderModuleCard(module, active) {
         <button class="ghost-button fs-small-button" type="button" data-module-select="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>Select</button>
       </div>
       <p>${escapeHtml(module.description || "No description.")}</p>
+      ${module.disabledReason ? `<small class="error-text">${escapeHtml(module.disabledReason)}</small>` : ""}
       ${tags.length ? `<div class="tag-list module-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
       ${module.usage ? `<code>${escapeHtml(module.usage)}</code>` : ""}
       ${limitParts.length ? `<small>${escapeHtml(limitParts.join(" · "))}</small>` : ""}
     </article>
   `;
+}
+
+function moduleForCurrentHost(module, row) {
+  const platforms = (module.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+  if (!platforms.length) {
+    return module;
+  }
+
+  const hostOS = parsePlatform(row?.version || "").os;
+  if (!hostOS || platforms.includes(hostOS)) {
+    return module;
+  }
+
+  return {
+    ...module,
+    disabled: true,
+    disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
+  };
 }
 
 async function runSelectedModule(event) {
@@ -447,10 +470,35 @@ async function runSelectedModule(event) {
     return;
   }
 
+  let stdin = elements.moduleStdinInput?.value || "";
+  let stdinBase64 = "";
+  const stdinFile = elements.moduleStdinFileInput?.files?.[0] || null;
+  if (stdinFile && stdin) {
+    elements.moduleOutput.textContent = "Use either stdin text or stdin file, not both.";
+    return;
+  }
+  if (stdinFile) {
+    if (stdinFile.size > moduleStdinLimitBytes(module)) {
+      elements.moduleOutput.textContent = `Stdin file is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
+      return;
+    }
+    try {
+      stdinBase64 = await readFileAsBase64(stdinFile);
+      stdin = "";
+    } catch (error) {
+      elements.moduleOutput.textContent = error.message;
+      return;
+    }
+  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(module)) {
+    elements.moduleOutput.textContent = `Stdin is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
+    return;
+  }
+
   const payload = {
     connectionId: connection.connectionId,
     args,
-    stdin: elements.moduleStdinInput?.value || "",
+    stdin,
+    stdinBase64,
     timeoutSeconds: numberFieldValue(elements.moduleTimeoutInput, 60),
     outputLimitBytes: numberFieldValue(elements.moduleOutputLimitInput, 1024 * 1024)
   };
@@ -483,6 +531,37 @@ async function runSelectedModule(event) {
     pageState.modules.running = false;
     renderModules();
   }
+}
+
+function moduleStdinLimitBytes(moduleName) {
+  const module = (pageState.modules.items || []).find((item) => item.name === moduleName);
+  const limit = Number(module?.limits?.stdinBytes || 0);
+  if (limit > 0) {
+    return Math.min(limit, MAX_MODULE_STDIN_BYTES);
+  }
+  return MAX_MODULE_STDIN_BYTES;
+}
+
+function moduleStdinLimitLabel(moduleName) {
+  const limit = moduleStdinLimitBytes(moduleName);
+  if (limit === MAX_MODULE_STDIN_BYTES) {
+    return MAX_MODULE_STDIN_LABEL;
+  }
+  return `${limit} bytes`;
+}
+
+function textByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
+async function readFileAsBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function parseModuleArgs(raw) {

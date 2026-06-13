@@ -1,6 +1,6 @@
 //go:build pscan
 
-package pscan
+package engine
 
 import (
 	"context"
@@ -35,10 +35,7 @@ func Scan(ctx context.Context, cfg Config, emit func(Result) error) error {
 	ctx, cancel := context.WithTimeout(ctx, cfg.MaxDuration)
 	defer cancel()
 
-	var limiter *rate.Limiter
-	if cfg.Rate > 0 {
-		limiter = rate.NewLimiter(rate.Limit(cfg.Rate), cfg.Workers)
-	}
+	limiter := newScanLimiter(cfg.Rate)
 
 	jobs := make(chan scanJob)
 	results := make(chan Result)
@@ -98,6 +95,13 @@ func Scan(ctx context.Context, cfg Config, emit func(Result) error) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+func newScanLimiter(ratePerSecond int) *rate.Limiter {
+	if ratePerSecond <= 0 {
+		return nil
+	}
+	return rate.NewLimiter(rate.Limit(ratePerSecond), 1)
 }
 
 func scanOne(ctx context.Context, timeout time.Duration, job scanJob) Result {

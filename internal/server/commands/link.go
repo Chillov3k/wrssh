@@ -53,7 +53,7 @@ func linkArgumentDescriptions() map[string]string {
 		"no-history-save":   "Detach startup and reduce shell history persistence for commands run through this agent",
 		"busybox-fallback":  "Embed a Linux BusyBox fallback for distroless targets where shell or common command executables are missing",
 		"pscan":             "Compile the optional TCP connect scanner subsystem module into the client",
-		"execass":           "Compile the optional Windows-only execution-assist subsystem into the client",
+		"execass":           "Compile the optional Windows-only isolated execute assembly subsystem into the client",
 		"use-kerberos":      "Instruct client to try and use kerberos ticket when using a proxy",
 		"log-level":         "Set default output logging levels, [INFO,WARNING,ERROR,FATAL,DISABLED]",
 		"ntlm-proxy-creds":  "Set NTLM proxy credentials in format DOMAIN\\USER:PASS",
