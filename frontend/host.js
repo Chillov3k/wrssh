@@ -1412,6 +1412,7 @@ function openTerminal(connectionId, reconnect) {
   closeTerminal();
 
   const size = measureTerminalSize();
+  terminalView.setSize(size.cols, size.rows);
   terminalView.setConnected(false);
   terminalView.reset("");
   terminalView.write(`[connecting to ${connection.connectionId}]\n`);
@@ -1603,6 +1604,7 @@ function sendTerminalResize(size) {
     return;
   }
 
+  terminalView.setSize(size.cols, size.rows);
   pageState.terminal.cols = size.cols;
   pageState.terminal.rows = size.rows;
   pageState.terminal.socket.send(JSON.stringify({
