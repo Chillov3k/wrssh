@@ -21,7 +21,7 @@ func New() *Module {
 func (m *Module) Manifest() subsystems.Manifest {
 	return subsystems.Manifest{
 		Name:        "pscan",
-		Description: "TCP connect scanner with lightweight web metadata collection on common web ports.",
+		Description: "TCP connect scanner with HTTP/HTTPS metadata probing on every open port.",
 		Version:     "1",
 		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [-t workers] [-time timeout] [--json]",
 		BuildTags:   []string{"pscan"},
@@ -64,6 +64,17 @@ func formatOpenResult(result engine.Result) string {
 		}
 		if result.Web.Server != "" {
 			parts = append(parts, fmt.Sprintf("server=%q", result.Web.Server))
+		}
+	}
+	if result.NetBIOS != nil {
+		if result.NetBIOS.Hostname != "" {
+			parts = append(parts, fmt.Sprintf("netbios-host=%q", result.NetBIOS.Hostname))
+		}
+		if result.NetBIOS.Domain != "" {
+			parts = append(parts, fmt.Sprintf("netbios-domain=%q", result.NetBIOS.Domain))
+		}
+		if result.NetBIOS.MAC != "" {
+			parts = append(parts, fmt.Sprintf("netbios-mac=%q", result.NetBIOS.MAC))
 		}
 	}
 	return strings.Join(parts, " ")

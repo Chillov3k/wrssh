@@ -9,4 +9,5 @@ type Result struct {
 	Error      string   `json:"error,omitempty"`
 	DurationMS int64    `json:"durationMs"`
 	Web        *WebInfo `json:"web,omitempty"`
+	NetBIOS    *NBInfo  `json:"netbios,omitempty"`
 }

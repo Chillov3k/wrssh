@@ -125,6 +125,11 @@ func scanOne(ctx context.Context, timeout time.Duration, job scanJob) Result {
 		if webInfo, ok := probeWeb(ctx, net.IP(job.host.AsSlice()), job.port, timeout); ok {
 			result.Web = &webInfo
 		}
+		if job.port == 445 {
+			if nbInfo, ok := probeNetBIOS(ctx, net.IP(job.host.AsSlice()), timeout); ok {
+				result.NetBIOS = &nbInfo
+			}
+		}
 	}
 	return result
 }

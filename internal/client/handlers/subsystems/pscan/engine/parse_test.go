@@ -41,8 +41,13 @@ func TestParseArgsDefaultsPortsAndResolvesHostnames(t *testing.T) {
 	if len(cfg.Hosts) == 0 {
 		t.Fatalf("expected localhost to resolve at least one host")
 	}
-	if got, want := cfg.Ports, []int{80, 443, 8080, 81, 7001, 8000, 8089, 9000, 9200, 21, 22, 135, 139, 445, 1433, 1521, 3306, 5432, 6379, 11211, 27017}; !sameInts(got, want) {
-		t.Fatalf("ports = %v, want %v", got, want)
+	for _, port := range []int{21, 22, 23, 80, 88, 137, 445, 623, 1433, 2375, 3389, 50000, 50014, 61616} {
+		if !containsInt(cfg.Ports, port) {
+			t.Fatalf("default ports missing %d: %v", port, cfg.Ports)
+		}
+	}
+	if containsDuplicateInt(cfg.Ports) {
+		t.Fatalf("default ports contain duplicates: %v", cfg.Ports)
 	}
 }
 
@@ -87,6 +92,16 @@ func TestParseArgsEnforcesLimits(t *testing.T) {
 	}
 }
 
+func TestParseArgsAllows1024Hosts(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--ips", "127.0.0.0/22", "--ports", "1"})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if len(cfg.Hosts) != MaxHosts {
+		t.Fatalf("host count = %d, want %d", len(cfg.Hosts), MaxHosts)
+	}
+}
+
 func sameInts(left, right []int) bool {
 	if len(left) != len(right) {
 		return false
@@ -97,4 +112,24 @@ func sameInts(left, right []int) bool {
 		}
 	}
 	return true
+}
+
+func containsInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsDuplicateInt(values []int) bool {
+	seen := make(map[int]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+	return false
 }

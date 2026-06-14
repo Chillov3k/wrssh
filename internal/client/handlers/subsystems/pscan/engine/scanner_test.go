@@ -105,6 +105,42 @@ func TestScanCollectsWebTitle(t *testing.T) {
 	}
 }
 
+func TestScanCollectsWebTitleOnNonPriorityPort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<title>Odd Port Web</title>"))
+	}))
+	defer server.Close()
+
+	addr := server.Listener.Addr().(*net.TCPAddr)
+	for _, port := range priorityWebPorts {
+		if addr.Port == port {
+			t.Skipf("test listener unexpectedly got priority web port %d", addr.Port)
+		}
+	}
+
+	cfg := Config{
+		Hosts:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+		Ports:       []int{addr.Port},
+		Timeout:     time.Second,
+		Workers:     1,
+		MaxDuration: time.Second,
+	}
+
+	var results []Result
+	if err := Scan(context.Background(), cfg, func(result Result) error {
+		results = append(results, result)
+		return nil
+	}); err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Web == nil {
+		t.Fatalf("expected web probe on non-priority port, got %+v", results)
+	}
+	if results[0].Web.Title != "Odd Port Web" {
+		t.Fatalf("title = %q, want Odd Port Web", results[0].Web.Title)
+	}
+}
+
 func TestScanLimiterUsesSingleBurst(t *testing.T) {
 	limiter := newScanLimiter(10)
 	if limiter == nil {

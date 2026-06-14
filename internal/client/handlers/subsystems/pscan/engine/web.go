@@ -73,7 +73,7 @@ func probeWebScheme(ctx context.Context, host net.IP, port int, scheme string, t
 	if err != nil {
 		return WebInfo{}, false
 	}
-	req.Header.Set("User-Agent", "wrssh-pscan/1")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
 
 	resp, err := client.Do(req)
 	if err != nil {
