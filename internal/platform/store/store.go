@@ -470,6 +470,44 @@ func (s *Store) DeleteHost(stableID string) error {
 	})
 }
 
+func (s *Store) DeleteHosts(stableIDs []string) (int64, error) {
+	filtered := make([]string, 0, len(stableIDs))
+	seen := make(map[string]struct{}, len(stableIDs))
+	for _, stableID := range stableIDs {
+		stableID = strings.TrimSpace(stableID)
+		if stableID == "" {
+			continue
+		}
+		if _, ok := seen[stableID]; ok {
+			continue
+		}
+		seen[stableID] = struct{}{}
+		filtered = append(filtered, stableID)
+	}
+	if len(filtered) == 0 {
+		return 0, nil
+	}
+
+	var deleted int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("host_stable_id IN ?", filtered).Delete(&SessionRecord{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("stable_id IN ?", filtered).Delete(&HostProjectHintRecord{}).Error; err != nil {
+			return err
+		}
+
+		result := tx.Where("stable_id IN ?", filtered).Delete(&HostRecord{})
+		if result.Error != nil {
+			return result.Error
+		}
+		deleted = result.RowsAffected
+		return nil
+	})
+	return deleted, err
+}
+
 func (s *Store) AssignHostProjectHint(stableID, project string) error {
 	stableID = strings.TrimSpace(stableID)
 	if stableID == "" {

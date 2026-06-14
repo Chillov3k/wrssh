@@ -21,6 +21,7 @@ const connectBackPort = byId("connectBackPort");
 const goosSelect = byId("goosSelect");
 const goarchSelect = byId("goarchSelect");
 const output = byId("artifactCreateOutput");
+const artifactNameInput = form.elements.namedItem("name");
 
 const pageState = {
   systemOptions: null,
@@ -32,6 +33,10 @@ form.addEventListener("change", syncCompressionOptions);
 connectBackHost.addEventListener("change", handleAddressSelectionChange);
 connectBackCustomHost.addEventListener("input", () => renderMeta(pageState.ctx));
 connectBackPort.addEventListener("input", () => renderMeta(pageState.ctx));
+goosSelect.addEventListener("change", syncArtifactNameRequirement);
+if (artifactNameInput instanceof HTMLInputElement) {
+  artifactNameInput.addEventListener("input", () => validateArtifactName(false));
+}
 
 initPage({
   title: "Builds",
@@ -67,6 +72,7 @@ function populateBuildOptions() {
 
   handleAddressSelectionChange();
   syncCompressionOptions();
+  syncArtifactNameRequirement();
   applyBuildFlagHelp(options);
 }
 
@@ -143,6 +149,10 @@ async function createArtifact(event) {
   payload.buildTags = ["pscan", "execass"].filter((tag) => payload[tag]);
   payload.project = pageState.ctx?.project || "";
 
+  if (!validateArtifactName(true)) {
+    return;
+  }
+
   payload.connectBackHost = selectedConnectBackHost();
   if (!payload.connectBackHost) {
     output.textContent = "Choose a reachable host/interface address or type a custom one.";
@@ -187,6 +197,39 @@ function selectedConnectBackHost() {
     return connectBackCustomHost.value.trim();
   }
   return connectBackHost.value.trim();
+}
+
+function syncArtifactNameRequirement() {
+  if (!(artifactNameInput instanceof HTMLInputElement)) {
+    return;
+  }
+
+  artifactNameInput.placeholder = isWindowsBuild() ? "agent.exe" : "Name of agent";
+  validateArtifactName(false);
+}
+
+function validateArtifactName(showValidation) {
+  if (!(artifactNameInput instanceof HTMLInputElement)) {
+    return true;
+  }
+
+  const message = "Windows artifact name must end with .exe, for example love.exe.";
+  const invalid = isWindowsBuild() && !artifactNameInput.value.trim().toLowerCase().endsWith(".exe");
+  artifactNameInput.setCustomValidity(invalid ? message : "");
+
+  if (!invalid) {
+    return true;
+  }
+
+  if (showValidation) {
+    output.textContent = message;
+    artifactNameInput.reportValidity();
+  }
+  return false;
+}
+
+function isWindowsBuild() {
+  return goosSelect.value.trim().toLowerCase() === "windows";
 }
 
 function renderMeta(ctx) {

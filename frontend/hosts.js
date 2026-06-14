@@ -840,7 +840,11 @@ async function deleteOfflineFromModal(mode) {
   actionButton.textContent = mode === "all" ? "Deleting offline clients..." : "Deleting client...";
 
   try {
-    await deleteHostRecords(stableIds);
+    if (mode === "all") {
+      await deleteAllOfflineHostRecords();
+    } else {
+      await deleteHostRecords(stableIds);
+    }
     closeOfflineDeleteModal(true);
     await refreshHostsAfterMutation();
   } catch (error) {
@@ -862,6 +866,12 @@ async function deleteHostRecords(stableIds) {
       method: "DELETE"
     });
   }
+}
+
+async function deleteAllOfflineHostRecords() {
+  return api(withProjectQuery("/api/hosts/offline", pageState.ctx?.project || ""), {
+    method: "DELETE"
+  });
 }
 
 async function refreshHostsAfterMutation() {

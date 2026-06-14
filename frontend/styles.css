@@ -1548,7 +1548,7 @@ pre {
 .hosts-list-head,
 .hosts-list-row {
   display: grid;
-  grid-template-columns: 28px 34px minmax(120px, 0.9fr) minmax(110px, 0.8fr) minmax(170px, 1.25fr) minmax(96px, 0.7fr) minmax(78px, 0.52fr);
+  grid-template-columns: 28px 44px minmax(120px, 0.9fr) minmax(110px, 0.8fr) minmax(170px, 1.25fr) minmax(96px, 0.7fr) minmax(78px, 0.52fr);
   align-items: center;
 }
 
@@ -1589,6 +1589,25 @@ pre {
   letter-spacing: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.hosts-sort-button[data-host-sort="os"] {
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.hosts-sort-button[data-host-sort="os"] .sort-arrows span {
+  border-left-width: 2.5px;
+  border-right-width: 2.5px;
+}
+
+.hosts-sort-button[data-host-sort="os"] .sort-arrow-up {
+  border-bottom-width: 3.5px;
+}
+
+.hosts-sort-button[data-host-sort="os"] .sort-arrow-down {
+  border-top-width: 3.5px;
 }
 
 .hosts-sort-button:hover,

@@ -79,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/hosts/{stableID}/modules", s.requireUser(http.HandlerFunc(s.handleHostModules)))
 	mux.Handle("POST /api/hosts/{stableID}/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostModule)))
 	mux.Handle("POST /api/hosts/exec", s.requireUser(http.HandlerFunc(s.handleExecuteHosts)))
+	mux.Handle("DELETE /api/hosts/offline", s.requireUser(http.HandlerFunc(s.handleDeleteOfflineHosts)))
 	mux.Handle("PATCH /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleUpdateHost)))
 	mux.Handle("DELETE /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleDeleteHost)))
 	mux.Handle("GET /api/artifacts/{urlPath}", s.requireUser(http.HandlerFunc(s.handleArtifact)))
@@ -428,6 +429,52 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDeleteOfflineHosts(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	projectName := requestedProject(r)
+	if strings.TrimSpace(projectName) == "" {
+		writeError(w, http.StatusBadRequest, "project is required")
+		return
+	}
+	if !requireProjectAccess(w, user, projectName) {
+		return
+	}
+
+	remoteConnections, err := s.syncProjectRuntimeHosts(r.Context(), projectName)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	hosts, err := s.store.ListHostsForProject(projectName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	stableIDs := make([]string, 0, len(hosts))
+	for _, host := range filterHostsForWebUser(hosts, user) {
+		if !store.ProjectMatches(host.Project, projectName) || host.Connected {
+			continue
+		}
+		if len(s.activeConnectionsForProjectHost(host.Project, host.StableID, remoteConnections)) > 0 {
+			continue
+		}
+		stableIDs = append(stableIDs, host.StableID)
+	}
+
+	deleted, err := s.store.DeleteHosts(stableIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted": deleted,
+		"project": store.DisplayProjectName(projectName),
+	})
+}
+
 func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	projectName := requestedProject(r)
@@ -565,6 +612,20 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	if !requireProjectAccess(w, user, projectName) {
 		return
 	}
+	options := system.DiscoverBuildOptions(s.jumpAddressForProject(r.Context(), projectName), s.cfg.RSSHListenAddr, s.cfg.AdvertisedAddrs)
+	targetGOOS := strings.TrimSpace(request.GOOS)
+	if !contains(options.GOOS, targetGOOS) {
+		writeError(w, http.StatusBadRequest, "unsupported GOOS for this rssh build")
+		return
+	}
+	if !contains(options.GOARCH, strings.TrimSpace(request.GOARCH)) {
+		writeError(w, http.StatusBadRequest, "unsupported GOARCH for this rssh build")
+		return
+	}
+	if targetGOOS == "windows" && !validWindowsArtifactName(request.Name) {
+		writeError(w, http.StatusBadRequest, "windows artifact name must end with .exe")
+		return
+	}
 	if strings.TrimSpace(request.Name) == "" {
 		generatedName, err := internal.RandomString(16)
 		if err != nil {
@@ -572,16 +633,6 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		request.Name = generatedName
-	}
-
-	options := system.DiscoverBuildOptions(s.jumpAddressForProject(r.Context(), projectName), s.cfg.RSSHListenAddr, s.cfg.AdvertisedAddrs)
-	if !contains(options.GOOS, strings.TrimSpace(request.GOOS)) {
-		writeError(w, http.StatusBadRequest, "unsupported GOOS for this rssh build")
-		return
-	}
-	if !contains(options.GOARCH, strings.TrimSpace(request.GOARCH)) {
-		writeError(w, http.StatusBadRequest, "unsupported GOARCH for this rssh build")
-		return
 	}
 
 	connectBackAddress := s.jumpAddressForProject(r.Context(), projectName)
@@ -597,7 +648,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		Name:              strings.TrimSpace(request.Name),
 		Comment:           strings.TrimSpace(request.Comment),
 		Owners:            strings.TrimSpace(request.Owners),
-		GOOS:              strings.TrimSpace(request.GOOS),
+		GOOS:              targetGOOS,
 		GOARCH:            strings.TrimSpace(request.GOARCH),
 		GOARM:             strings.TrimSpace(request.GOARM),
 		ConnectBackAdress: applyTransport(connectBackAddress, request.Transport),
@@ -666,6 +717,10 @@ func artifactBuildTags(tags []string, pscan, execass bool) []string {
 		out = append(out, "execass")
 	}
 	return out
+}
+
+func validWindowsArtifactName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".exe")
 }
 
 func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
