@@ -761,7 +761,7 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 		Connected:              len(activeConnections) > 0,
 		Project:                store.DisplayProjectName(host.Project),
 		Tags:                   store.DecodeTags(host.Tags),
-		DateAdded:              host.FirstSeenAt,
+		DateAdded:              hostDateAdded(host),
 		LastActivityAt:         host.LastActivityAt,
 		LastConnectionAt:       host.LastConnectedAt,
 		LastDisconnectAt:       host.LastDisconnectedAt,
@@ -775,6 +775,16 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 			RemoteForward: fmt.Sprintf("ssh -R 1234:localhost:1234 -J %s %s", jumpTarget, defaultTarget),
 		},
 	}
+}
+
+func hostDateAdded(host store.HostRecord) *time.Time {
+	if host.FirstSeenAt != nil {
+		return host.FirstSeenAt
+	}
+	if host.CreatedAt.IsZero() {
+		return nil
+	}
+	return &host.CreatedAt
 }
 
 func jumpAddressForUser(user store.WebUser, jumpAddress string) string {

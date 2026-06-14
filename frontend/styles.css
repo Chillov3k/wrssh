@@ -1564,6 +1564,72 @@ pre {
   font-weight: 900;
 }
 
+.hosts-list-head .client-select-head {
+  padding: 0;
+}
+
+.hosts-select-all {
+  cursor: pointer;
+}
+
+.hosts-sort-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hosts-sort-button:hover,
+.hosts-sort-button.is-active {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.hosts-sort-button > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sort-arrows {
+  display: inline-grid;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.sort-arrows span {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  opacity: 0.34;
+}
+
+.sort-arrow-up {
+  border-bottom: 4px solid currentColor;
+}
+
+.sort-arrow-down {
+  border-top: 4px solid currentColor;
+}
+
+.sort-arrows .active {
+  opacity: 1;
+  color: #0b63d7;
+}
+
 .hosts-list-body {
   display: grid;
 }
@@ -2808,6 +2874,15 @@ html[data-theme="dark"] .host-context-menu {
 html[data-theme="dark"] .hosts-list-head {
   background: linear-gradient(180deg, #1a2a40, #111d2e);
   color: #b8c7da;
+}
+
+html[data-theme="dark"] .hosts-sort-button:hover,
+html[data-theme="dark"] .hosts-sort-button.is-active {
+  background: rgba(143, 173, 255, 0.12);
+}
+
+html[data-theme="dark"] .sort-arrows .active {
+  color: #8fb6ff;
 }
 
 html[data-theme="dark"] .hosts-list-row {

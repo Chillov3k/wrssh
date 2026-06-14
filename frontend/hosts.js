@@ -73,6 +73,10 @@ const pageState = {
   systemOptions: null,
   ctx: null,
   osFilter: "all",
+  sort: {
+    key: "status",
+    direction: "desc"
+  },
   selectedRows: new Set(),
   runningRows: new Set(),
   commandResults: new Map(),
@@ -157,6 +161,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 hostTable.addEventListener("click", async (event) => {
+  const sortButton = event.target.closest("[data-host-sort]");
+  if (sortButton) {
+    setHostSort(sortButton.dataset.hostSort || "");
+    return;
+  }
+
   const selectVisibleToggle = event.target.closest("[data-select-visible-toggle]");
   if (selectVisibleToggle) {
     toggleVisibleSelection(selectVisibleToggle.checked);
@@ -248,7 +258,7 @@ function renderHosts() {
   const counts = countRowsByOS(allRows);
   syncOSFilterButtons(counts);
 
-  const rows = filteredRows(allRows);
+  const rows = sortedRows(filteredRows(allRows));
   syncBulkControls(rows);
 
   if (!rows.length) {
@@ -269,14 +279,14 @@ function renderHosts() {
       <div class="hosts-list">
         <div class="hosts-list-head">
           <span class="client-select-head">
-            <input type="checkbox" class="row-selector" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
+            <input type="checkbox" class="row-selector hosts-select-all" title="Select all visible" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
           </span>
-          <span>OS</span>
-          <span>IP</span>
-          <span>User</span>
-          <span>Host</span>
-          <span>Session time</span>
-          <span>Status</span>
+          ${renderSortHeader("os", "OS")}
+          ${renderSortHeader("ip", "IP")}
+          ${renderSortHeader("user", "User")}
+          ${renderSortHeader("host", "Host")}
+          ${renderSortHeader("sessionTime", "Session time")}
+          ${renderSortHeader("status", "Status")}
         </div>
         <div class="hosts-list-body">
           ${rows.map((row) => renderRow(row)).join("")}
@@ -292,6 +302,115 @@ function filteredRows(existingRows = null) {
   const query = hostSearch.value.trim().toLowerCase();
   const rows = existingRows || getClientRows(pageState.hosts);
   return rows.filter((row) => rowMatchesQuery(row, query) && rowMatchesOS(row, pageState.osFilter));
+}
+
+function sortedRows(rows) {
+  const direction = pageState.sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const result = compareRows(left, right, pageState.sort.key);
+    if (result !== 0) {
+      return result * direction;
+    }
+
+    if (left.connected !== right.connected) {
+      return left.connected ? -1 : 1;
+    }
+
+    return compareDateRows(right.dateAdded, left.dateAdded) || compareStrings(left.hostname, right.hostname);
+  });
+}
+
+function compareRows(left, right, key) {
+  switch (key) {
+  case "os":
+    return compareStrings(parsePlatform(left.version).label, parsePlatform(right.version).label);
+  case "ip":
+    return compareIPLabels(left.ip, right.ip);
+  case "user":
+    return compareStrings(splitHostIdentity(left.hostname).user, splitHostIdentity(right.hostname).user);
+  case "host":
+    return compareStrings(splitHostIdentity(left.hostname).host, splitHostIdentity(right.hostname).host);
+  case "sessionTime":
+    return compareDateRows(left.dateAdded, right.dateAdded);
+  case "status":
+    return Number(left.connected) - Number(right.connected);
+  default:
+    return 0;
+  }
+}
+
+function compareStrings(left, right) {
+  return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareDateRows(left, right) {
+  return dateValue(left) - dateValue(right);
+}
+
+function compareIPLabels(left, right) {
+  const leftParts = parseIPv4(left);
+  const rightParts = parseIPv4(right);
+  if (leftParts && rightParts) {
+    for (let index = 0; index < leftParts.length; index += 1) {
+      if (leftParts[index] !== rightParts[index]) {
+        return leftParts[index] - rightParts[index];
+      }
+    }
+    return 0;
+  }
+
+  return compareStrings(left, right);
+}
+
+function parseIPv4(value) {
+  const parts = String(value || "").trim().split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+
+  return numbers;
+}
+
+function dateValue(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function setHostSort(key) {
+  if (!key) {
+    return;
+  }
+
+  if (pageState.sort.key === key) {
+    pageState.sort.direction = pageState.sort.direction === "asc" ? "desc" : "asc";
+  } else {
+    pageState.sort.key = key;
+    pageState.sort.direction = key === "sessionTime" || key === "status" ? "desc" : "asc";
+  }
+
+  renderHosts();
+}
+
+function renderSortHeader(key, label) {
+  const active = pageState.sort.key === key;
+  const direction = active ? pageState.sort.direction : "";
+  return `
+    <button class="hosts-sort-button ${active ? "is-active" : ""}" type="button" data-host-sort="${escapeAttribute(key)}" aria-sort="${active ? (direction === "asc" ? "ascending" : "descending") : "none"}">
+      <span>${escapeHtml(label)}</span>
+      <span class="sort-arrows" aria-hidden="true">
+        <span class="sort-arrow-up ${active && direction === "asc" ? "active" : ""}"></span>
+        <span class="sort-arrow-down ${active && direction === "desc" ? "active" : ""}"></span>
+      </span>
+    </button>
+  `;
 }
 
 function countRowsByOS(rows) {
@@ -398,7 +517,7 @@ function renderRow(row) {
   const execution = pageState.commandResults.get(row.key);
   const platform = parsePlatform(row.version);
   const identity = splitHostIdentity(row.hostname);
-  const sessionTime = row.host?.lastConnectionAt || row.lastActivityAt || row.dateAdded;
+  const sessionTime = row.dateAdded;
 
   return `
     <article class="hosts-list-row ${row.connected ? "is-online" : "is-offline"} ${selected ? "is-selected" : ""}" data-host-row-key="${escapeAttribute(row.key)}" data-open-shell="${escapeAttribute(href)}" title="Right-click for host actions">
@@ -542,7 +661,7 @@ function toggleRowSelection(key, checked) {
 }
 
 function toggleVisibleSelection(checked) {
-  filteredRows().forEach((row) => toggleRowSelection(row.key, checked));
+  sortedRows(filteredRows()).forEach((row) => toggleRowSelection(row.key, checked));
 }
 
 function syncVisibleSelectionToggle(rows) {
