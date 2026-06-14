@@ -21,9 +21,9 @@ func New() *Module {
 func (m *Module) Manifest() subsystems.Manifest {
 	return subsystems.Manifest{
 		Name:        "pscan",
-		Description: "TCP connect scanner with lightweight web title collection on common web ports.",
+		Description: "TCP connect scanner with lightweight web metadata collection on common web ports.",
 		Version:     "1",
-		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [-t 600] [-time 3] [--json]",
+		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [-t workers] [-time timeout] [--json]",
 		BuildTags:   []string{"pscan"},
 		Limits: subsystems.ModuleLimits{
 			TimeoutSeconds: int(engine.MaxScanDuration.Seconds()),

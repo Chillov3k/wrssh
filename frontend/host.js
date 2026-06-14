@@ -48,6 +48,7 @@ const elements = {
   moduleList: document.getElementById("moduleList"),
   moduleRunForm: document.getElementById("moduleRunForm"),
   moduleSelect: document.getElementById("moduleSelect"),
+  moduleHelpText: document.getElementById("moduleHelpText"),
   moduleArgsInput: document.getElementById("moduleArgsInput"),
   moduleTimeoutInput: document.getElementById("moduleTimeoutInput"),
   moduleOutputLimitInput: document.getElementById("moduleOutputLimitInput"),
@@ -85,6 +86,34 @@ const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
 const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
 const MAX_MODULE_STDIN_LABEL = "8 MiB";
+const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const MODULE_FORM_HELP = {
+  pscan: {
+    argsPlaceholder: "-h localhost -p 80,443 --json",
+    stdinPlaceholder: "not used by pscan",
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json"
+  },
+  execass: {
+    argsPlaceholder: "--args \"currentluid\" --debug",
+    stdinPlaceholder: "upload or paste a .NET assembly artifact",
+    text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
+  },
+  service: {
+    argsPlaceholder: "--install or --uninstall",
+    stdinPlaceholder: "not used by service",
+    text: "Installs or removes the default rssh Windows service. Requires elevated privileges."
+  },
+  setuid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setuid",
+    text: "Changes the Linux client process UID."
+  },
+  setgid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setgid",
+    text: "Changes the Linux client process GID."
+  }
+};
 const filesystemAvailable = Boolean(
   elements.fileSystemOverlay &&
   elements.closeFilesystemButton &&
@@ -349,9 +378,10 @@ function renderModules() {
 
   const connection = currentConnection();
   const row = currentRow(connection);
-  const modules = (pageState.modules.items || []).map((module) => moduleForCurrentHost(module, row));
+  const modules = visibleWebModules(pageState.modules.items).map((module) => moduleForCurrentHost(module, row));
   const selectedName = elements.moduleSelect.value;
   const selected = modules.find((module) => module.name === selectedName) || modules.find((module) => !module.disabled) || modules[0] || null;
+  syncModuleFormHelp(selected);
 
   elements.refreshModulesButton.disabled = !connection || pageState.modules.loading;
   elements.moduleRunForm?.classList.toggle("hidden", !connection);
@@ -383,7 +413,7 @@ function renderModules() {
   }
 
   if (!modules.length) {
-    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>No modules reported by this agent.</p></div>`;
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>No runnable web modules reported by this agent.</p></div>`;
     return;
   }
 
@@ -431,6 +461,10 @@ function renderModuleCard(module, active) {
   `;
 }
 
+function visibleWebModules(modules) {
+  return (modules || []).filter((module) => !HIDDEN_WEB_MODULES.has(String(module?.name || "").toLowerCase()));
+}
+
 function moduleForCurrentHost(module, row) {
   const platforms = (module.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
   if (!platforms.length) {
@@ -449,6 +483,20 @@ function moduleForCurrentHost(module, row) {
   };
 }
 
+function syncModuleFormHelp(module) {
+  const name = String(module?.name || "").toLowerCase();
+  const help = MODULE_FORM_HELP[name] || {};
+  if (elements.moduleHelpText) {
+    elements.moduleHelpText.textContent = module ? (help.text || module.usage || "") : "";
+  }
+  if (elements.moduleArgsInput) {
+    elements.moduleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
+  }
+  if (elements.moduleStdinInput) {
+    elements.moduleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  }
+}
+
 async function runSelectedModule(event) {
   event.preventDefault();
   if (!pageState.host || !elements.moduleSelect || !elements.moduleOutput) {
@@ -459,6 +507,10 @@ async function runSelectedModule(event) {
   const module = elements.moduleSelect.value.trim();
   if (!connection || !module) {
     elements.moduleOutput.textContent = "Choose an online connection and module.";
+    return;
+  }
+  if (HIDDEN_WEB_MODULES.has(module.toLowerCase())) {
+    elements.moduleOutput.textContent = "This transport helper module is hidden from the web runner.";
     return;
   }
 

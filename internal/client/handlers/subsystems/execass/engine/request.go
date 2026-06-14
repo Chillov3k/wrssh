@@ -28,6 +28,7 @@ type Request struct {
 	SHA256       string
 	Timeout      time.Duration
 	OutputBytes  int64
+	Debug        bool
 	Artifact     []byte
 
 	InProcess    bool
@@ -53,6 +54,7 @@ func ParseRequest(args []string) (Request, error) {
 	fs.StringVar(&request.SHA256, "sha256", "", "expected artifact SHA-256 hex digest")
 	fs.StringVar(&timeoutRaw, "timeout", DefaultTimeout.String(), "maximum runner timeout")
 	fs.Int64Var(&outputLimit, "output-limit", DefaultOutputBytes, "maximum output bytes")
+	fs.BoolVar(&request.Debug, "debug", false, "print execass diagnostic messages")
 	fs.BoolVar(&request.InProcess, "in-process", false, "execute a .NET assembly in the current process")
 	fs.StringVar(&request.Runtime, "runtime", "v4", "CLR runtime to use")
 	fs.StringVar(&request.ProcessName, "process", DefaultProcessName, "legacy process name flag; custom process injection is not supported")
@@ -70,11 +72,11 @@ func ParseRequest(args []string) (Request, error) {
 	request.Runtime = strings.TrimSpace(request.Runtime)
 	request.ProcessName = strings.TrimSpace(request.ProcessName)
 	request.ProcessArgs = strings.TrimSpace(request.ProcessArgs)
-	if request.ArtifactPath == "" && !request.UseStdin {
-		return Request{}, fmt.Errorf("either --artifact or --stdin is required")
-	}
 	if request.ArtifactPath != "" && request.UseStdin {
 		return Request{}, fmt.Errorf("--artifact and --stdin are mutually exclusive")
+	}
+	if request.ArtifactPath == "" {
+		request.UseStdin = true
 	}
 	if request.Runtime == "" {
 		return Request{}, fmt.Errorf("--runtime must not be empty")

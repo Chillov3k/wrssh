@@ -13,6 +13,7 @@ func TestParseRequestExecassFlags(t *testing.T) {
 		"--args", `--name "Alice Example"`,
 		"--timeout", "15s",
 		"--output-limit", "4096",
+		"--debug",
 	})
 	if err != nil {
 		t.Fatalf("ParseRequest returned error: %v", err)
@@ -28,6 +29,22 @@ func TestParseRequestExecassFlags(t *testing.T) {
 	}
 	if request.Timeout.String() != "15s" || request.OutputBytes != 4096 {
 		t.Fatalf("limits = %s/%d", request.Timeout, request.OutputBytes)
+	}
+	if !request.Debug {
+		t.Fatalf("Debug = false")
+	}
+}
+
+func TestParseRequestDefaultsToStdin(t *testing.T) {
+	request, err := ParseRequest(nil)
+	if err != nil {
+		t.Fatalf("ParseRequest returned error: %v", err)
+	}
+	if !request.UseStdin {
+		t.Fatalf("UseStdin = false")
+	}
+	if request.ArtifactPath != "" {
+		t.Fatalf("ArtifactPath = %q", request.ArtifactPath)
 	}
 }
 

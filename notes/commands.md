@@ -102,4 +102,36 @@ GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-cl
 go test -tags execass ./...
 go test -tags 'pscan execass' ./...
 go test ./...
+go test -tags execass ./internal/client/handlers/subsystems/execass
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-client-execass-windows.test.exe
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe
+go test -tags execass ./...
+go test -tags execass ./internal/client/handlers/subsystems/execass ./internal/client/handlers/subsystems/execass/engine
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-client-execass-windows.test.exe
+GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe
+go test -tags execass ./...
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new root@46.62.143.173 'hostname; uname -a; command -v docker; docker --version; test -d /root/wrssh && echo wrssh_dir_ok'
+ssh root@46.62.143.173 'set -e; ts=$(date +%Y%m%d-%H%M%S); tar --exclude=.git --exclude=bin --exclude=e2e/cache --exclude=e2e/downloads --exclude=e2e/keys -czf /root/wrssh-backup-$ts.tar.gz -C /root wrssh; echo /root/wrssh-backup-$ts.tar.gz'
+rsync -a --delete --exclude='.git/' --exclude='.env' --exclude='bin/' --exclude='e2e/client' --exclude='e2e/server' --exclude='e2e/e2e' --exclude='e2e/cache/' --exclude='e2e/downloads/' --exclude='e2e/keys/' --exclude='e2e/data.db' --exclude='e2e/authorized_keys' --exclude='e2e/authorized_controllee_keys' --exclude='e2e/id_e2e' --exclude='e2e/id_e2e.pub' ./ root@46.62.143.173:/root/wrssh/
+ssh root@46.62.143.173 'cd /root/wrssh && docker compose up -d --build && docker compose ps'
+ssh root@46.62.143.173 'set -e; cd /root/wrssh; docker compose ps; curl -k -I --max-time 15 https://127.0.0.1/hrcfeqomn4ye39om/; docker logs --tail=120 wrssh-platform-1 2>&1'
+ssh root@46.62.143.173 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | grep -E "wrssh|NAMES"'
+GOCACHE=/private/tmp/wrssh-go-build go test -tags execass ./internal/client/handlers/subsystems/execass ./internal/client/handlers/subsystems/execass/engine
+GOCACHE=/private/tmp/wrssh-go-build GOOS=windows GOARCH=amd64 go test -c -tags execass ./cmd/client -o /tmp/wrssh-client-execass-windows.test.exe
+GOCACHE=/private/tmp/wrssh-go-build GOOS=windows GOARCH=amd64 go test -c -tags execass ./internal/client/handlers/subsystems/execass -o /tmp/wrssh-execass-windows.test.exe
+GOCACHE=/private/tmp/wrssh-go-build go test -tags execass ./...
+ssh root@46.62.143.173 'set -e; ts=$(date +%Y%m%d-%H%M%S); tar --exclude=.git --exclude=bin --exclude=e2e/cache --exclude=e2e/downloads --exclude=e2e/keys -czf /root/wrssh-backup-$ts.tar.gz -C /root wrssh; echo /root/wrssh-backup-$ts.tar.gz'
+rsync -a --delete --exclude='.git/' --exclude='.env' --exclude='bin/' --exclude='e2e/client' --exclude='e2e/server' --exclude='e2e/e2e' --exclude='e2e/cache/' --exclude='e2e/downloads/' --exclude='e2e/keys/' --exclude='e2e/data.db' --exclude='e2e/authorized_keys' --exclude='e2e/authorized_controllee_keys' --exclude='e2e/id_e2e' --exclude='e2e/id_e2e.pub' ./ root@46.62.143.173:/root/wrssh/
+ssh root@46.62.143.173 'cd /root/wrssh && docker compose up -d --build && docker compose ps'
+ssh root@46.62.143.173 'set -e; cd /root/wrssh; grep -R "fs.BoolVar(&request.Debug" -n internal/client/handlers/subsystems/execass/engine/request.go; grep -R "writeDebugLine" -n internal/client/handlers/subsystems/execass/engine/runner_windows.go; docker compose ps; docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | grep -E "wrssh|NAMES"; curl -k -I --max-time 15 https://127.0.0.1/hrcfeqomn4ye39om/'
+node --check frontend/host.js
+node --check frontend/builds.js
+GOCACHE=/private/tmp/wrssh-go-build go test ./internal/server/commands ./internal/client/handlers/subsystems
+GOCACHE=/private/tmp/wrssh-go-build go test -tags 'pscan execass' ./internal/client/handlers/subsystems/pscan ./internal/client/handlers/subsystems/execass ./internal/server/commands
+GOCACHE=/private/tmp/wrssh-go-build go test -tags 'pscan execass' ./...
+GOCACHE=/private/tmp/wrssh-go-build go test ./...
+ssh root@46.62.143.173 'set -e; ts=$(date +%Y%m%d-%H%M%S); tar --exclude=.git --exclude=bin --exclude=e2e/cache --exclude=e2e/downloads --exclude=e2e/keys -czf /root/wrssh-backup-$ts.tar.gz -C /root wrssh; echo /root/wrssh-backup-$ts.tar.gz'
+rsync -a --delete --exclude='.git/' --exclude='.env' --exclude='bin/' --exclude='e2e/client' --exclude='e2e/server' --exclude='e2e/e2e' --exclude='e2e/cache/' --exclude='e2e/downloads/' --exclude='e2e/keys/' --exclude='e2e/data.db' --exclude='e2e/authorized_keys' --exclude='e2e/authorized_controllee_keys' --exclude='e2e/id_e2e' --exclude='e2e/id_e2e.pub' ./ root@46.62.143.173:/root/wrssh/
+ssh root@46.62.143.173 'cd /root/wrssh && docker compose up -d --build && docker compose ps'
+ssh root@46.62.143.173 'set -e; cd /root/wrssh; grep -R "HIDDEN_WEB_MODULES" -n frontend/host.js; grep -R "No runnable web modules" -n frontend/host.js; docker compose ps; docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | grep -E "wrssh|NAMES"; curl -ks --max-time 15 https://127.0.0.1/hrcfeqomn4ye39om/host.js | grep -E "HIDDEN_WEB_MODULES|No runnable web modules"; curl -k -I --max-time 15 https://127.0.0.1/hrcfeqomn4ye39om/'
 ```

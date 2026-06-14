@@ -37,11 +37,11 @@ func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
 		t.Fatalf("unexpected busybox-fallback help: %q", help["busybox-fallback"])
 	}
 
-	if help["pscan"] != "Compile the optional TCP connect scanner subsystem module into the client" {
+	if help["pscan"] != "Compile the optional TCP connect scanner module into the client" {
 		t.Fatalf("unexpected pscan help: %q", help["pscan"])
 	}
 
-	if help["execass"] != "Compile the optional Windows-only isolated execute assembly subsystem into the client" {
+	if help["execass"] != "Compile the optional Windows-only .NET execute-assembly module into the client" {
 		t.Fatalf("unexpected execass help: %q", help["execass"])
 	}
 }

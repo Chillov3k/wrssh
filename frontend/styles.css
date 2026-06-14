@@ -1871,6 +1871,12 @@ pre {
   gap: 8px;
 }
 
+.field-help {
+  display: block;
+  line-height: 1.4;
+  font-size: 0.82rem;
+}
+
 .field-stack input,
 .field-stack textarea,
 .field-stack select,

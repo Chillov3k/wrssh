@@ -22,6 +22,7 @@ type HelperRequest struct {
 	ArtifactBase64 string `json:"artifactBase64"`
 	Runtime        string `json:"runtime"`
 	AssemblyArgs   string `json:"assemblyArgs"`
+	Debug          bool   `json:"debug"`
 }
 
 func RunHelper(stdin io.Reader, stdout, stderr io.Writer) int {
@@ -57,7 +58,7 @@ func runHelper(stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 
 	moduleIO := helperModuleIO{stdout: stdout, stderr: stderr}
-	if err := initRuntimeHost(request.Runtime, moduleIO); err != nil {
+	if err := initRuntimeHost(request.Runtime, moduleIO, false, request.Debug); err != nil {
 		return fmt.Errorf("failed to load CLR: %w", err)
 	}
 
