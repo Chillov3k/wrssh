@@ -95,7 +95,7 @@ const MODULE_FORM_HELP = {
   service: {
     argsPlaceholder: "--install or --uninstall",
     stdinPlaceholder: "not used by service",
-    text: "Installs or removes the default rssh Windows service. Requires elevated privileges."
+    text: "Installs or removes the client OS service. Requires elevated privileges."
   },
   setuid: {
     argsPlaceholder: "0",
@@ -425,7 +425,8 @@ function compareIPLabels(left, right) {
 }
 
 function parseIPv4(value) {
-  const parts = String(value || "").trim().split(".");
+  const primary = String(value || "").split("/")[0].trim();
+  const parts = primary.split(".");
   if (parts.length !== 4) {
     return null;
   }
@@ -580,6 +581,7 @@ function renderRow(row) {
   const platform = parsePlatform(row.version);
   const identity = splitHostIdentity(row.hostname);
   const sessionTime = row.dateAdded;
+  const ipTitle = [row.remoteAddr || row.ip, row.internalIp ? `internal ${row.internalIp}` : ""].filter(Boolean).join(" / ");
 
   return `
     <article class="hosts-list-row ${row.connected ? "is-online" : "is-offline"} ${selected ? "is-selected" : ""}" data-host-row-key="${escapeAttribute(row.key)}" data-open-shell="${escapeAttribute(href)}" title="Right-click for host actions">
@@ -589,7 +591,7 @@ function renderRow(row) {
       <div class="hosts-list-cell hosts-os-cell">
         <span class="os-icon os-${escapeAttribute(platform.os || "unknown")}" title="${escapeAttribute(platform.label)}">${osIconMarkup(platform.os)}</span>
       </div>
-      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(row.remoteAddr || row.ip)}">${escapeHtml(row.ip)}</div>
+      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(ipTitle)}">${escapeHtml(row.ip)}</div>
       <div class="hosts-list-cell compact-value" title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.user)}</div>
       <div class="hosts-list-cell hosts-name-cell">
         <strong title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.host)}</strong>

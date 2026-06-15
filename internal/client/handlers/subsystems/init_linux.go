@@ -4,4 +4,5 @@ package subsystems
 func init() {
 	Register(newSetuidModule())
 	Register(newSetgidModule())
+	Register(newServiceModule())
 }

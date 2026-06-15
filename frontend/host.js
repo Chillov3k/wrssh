@@ -101,7 +101,7 @@ const MODULE_FORM_HELP = {
   service: {
     argsPlaceholder: "--install or --uninstall",
     stdinPlaceholder: "not used by service",
-    text: "Installs or removes the default rssh Windows service. Requires elevated privileges."
+    text: "Installs or removes the client OS service. Requires elevated privileges."
   },
   setuid: {
     argsPlaceholder: "0",

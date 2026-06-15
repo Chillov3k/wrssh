@@ -47,6 +47,7 @@ type HostRecord struct {
 	Hostname             string     `gorm:"size:255" json:"hostname"`
 	RemoteAddr           string     `gorm:"size:255" json:"remoteAddr"`
 	RemoteIP             string     `gorm:"size:128" json:"remoteIp"`
+	InternalIP           string     `gorm:"size:128" json:"internalIp"`
 	Comment              string     `gorm:"size:255" json:"comment"`
 	Version              string     `gorm:"size:255" json:"version"`
 	Owners               string     `gorm:"size:255" json:"owners"`
@@ -243,6 +244,7 @@ func (s *Store) UpsertHostFromSnapshot(snapshot users.ClientSnapshot, seenAt tim
 	host.Hostname = snapshot.Hostname
 	host.RemoteAddr = snapshot.RemoteAddr
 	host.RemoteIP = snapshot.RemoteIP
+	host.InternalIP = snapshot.InternalIP
 	host.Comment = snapshot.Comment
 	host.Version = snapshot.Version
 	host.Owners = strings.Join(snapshot.Owners, ",")
@@ -270,7 +272,7 @@ func (s *Store) UpsertHostFromSnapshot(snapshot users.ClientSnapshot, seenAt tim
 
 	err = s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "stable_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"public_key_fingerprint", "active_connection_id", "last_connection_id", "hostname", "remote_addr", "remote_ip", "comment", "version", "owners", "is_public", "connected", "project", "last_seen_at", "last_connected_at", "last_activity_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"public_key_fingerprint", "active_connection_id", "last_connection_id", "hostname", "remote_addr", "remote_ip", "internal_ip", "comment", "version", "owners", "is_public", "connected", "project", "last_seen_at", "last_connected_at", "last_activity_at", "updated_at"}),
 	}).Create(&host).Error
 	if err != nil {
 		return HostRecord{}, err

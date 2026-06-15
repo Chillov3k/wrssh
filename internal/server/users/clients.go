@@ -1,6 +1,7 @@
 package users
 
 import (
+	"net"
 	"regexp"
 	"strings"
 
@@ -70,6 +71,24 @@ func AssociateClient(conn *ssh.ServerConn) (string, string, error) {
 
 	return idString, username, nil
 
+}
+
+func SetClientMetadata(conn *ssh.ServerConn, metadata internal.ClientMetadata) {
+	internalIP := strings.TrimSpace(metadata.InternalIP)
+	if net.ParseIP(internalIP) == nil {
+		return
+	}
+
+	lck.Lock()
+	defer lck.Unlock()
+
+	if conn == nil || conn.Permissions == nil {
+		return
+	}
+	if conn.Permissions.Extensions == nil {
+		conn.Permissions.Extensions = map[string]string{}
+	}
+	conn.Permissions.Extensions["internal-ip"] = internalIP
 }
 
 func _associateToOwners(idString, owners string, conn *ssh.ServerConn) {

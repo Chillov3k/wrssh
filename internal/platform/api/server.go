@@ -809,6 +809,7 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 		ObservedHostname:       host.Hostname,
 		DisplayName:            host.DisplayName,
 		IP:                     host.RemoteIP,
+		InternalIP:             host.InternalIP,
 		RemoteAddr:             host.RemoteAddr,
 		Comment:                host.Comment,
 		Version:                host.Version,
@@ -874,6 +875,7 @@ func (s *Server) activeConnectionsForHost(stableID string) []hostConnectionRespo
 			Hostname:     snapshot.Hostname,
 			RemoteAddr:   snapshot.RemoteAddr,
 			RemoteIP:     snapshot.RemoteIP,
+			InternalIP:   snapshot.InternalIP,
 			Version:      snapshot.Version,
 			Comment:      snapshot.Comment,
 		})
@@ -980,6 +982,7 @@ type hostResponse struct {
 	ObservedHostname       string                   `json:"observedHostname"`
 	DisplayName            string                   `json:"displayName"`
 	IP                     string                   `json:"ip"`
+	InternalIP             string                   `json:"internalIp"`
 	RemoteAddr             string                   `json:"remoteAddr"`
 	Comment                string                   `json:"comment"`
 	Version                string                   `json:"version"`
@@ -1003,6 +1006,7 @@ type hostConnectionResponse struct {
 	Hostname     string `json:"hostname"`
 	RemoteAddr   string `json:"remoteAddr"`
 	RemoteIP     string `json:"remoteIp"`
+	InternalIP   string `json:"internalIp"`
 	Version      string `json:"version"`
 	Comment      string `json:"comment"`
 }

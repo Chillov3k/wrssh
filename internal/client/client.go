@@ -528,6 +528,7 @@ func Run(settings *Settings) {
 		}
 
 		log.Println("Successfully connnected", settings.Addr)
+		sendClientMetadata(sshConn)
 
 		go func() {
 
@@ -638,6 +639,17 @@ func Run(settings *Settings) {
 
 	}
 
+}
+
+func sendClientMetadata(conn ssh.Conn) {
+	internalIP := defaultRouteIP()
+	if internalIP == "" {
+		return
+	}
+
+	_, _, _ = conn.SendRequest(internal.ClientMetadataRequest, false, ssh.Marshal(internal.ClientMetadata{
+		InternalIP: internalIP,
+	}))
 }
 
 func clientAccountName(username string) string {
