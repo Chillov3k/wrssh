@@ -31,7 +31,7 @@ func TestSystemdUnitContents(t *testing.T) {
 		"Description=burunya",
 		"After=network.target",
 		"Type=simple",
-		`ExecStart="/opt/salt-updater"`,
+		`ExecStart="/opt/salt-updater" --foreground`,
 		"Restart=always",
 		"RestartSec=120",
 		"WantedBy=multi-user.target",

@@ -127,7 +127,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%s
+ExecStart=%s --foreground
 Restart=always
 RestartSec=120
 
