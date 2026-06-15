@@ -29,6 +29,17 @@ const selectVisibleHostsButton = document.getElementById("selectVisibleHostsButt
 const clearSelectedHostsButton = document.getElementById("clearSelectedHostsButton");
 const runSelectedHostsButton = document.getElementById("runSelectedHostsButton");
 const bulkExecOutput = document.getElementById("bulkExecOutput");
+const bulkModulePanel = document.getElementById("bulkModulePanel");
+const bulkModuleSelect = document.getElementById("bulkModuleSelect");
+const bulkModuleHelpText = document.getElementById("bulkModuleHelpText");
+const bulkModuleArgsInput = document.getElementById("bulkModuleArgsInput");
+const bulkModuleTimeoutInput = document.getElementById("bulkModuleTimeoutInput");
+const bulkModuleOutputLimitInput = document.getElementById("bulkModuleOutputLimitInput");
+const bulkModuleStdinInput = document.getElementById("bulkModuleStdinInput");
+const bulkModuleStdinFileInput = document.getElementById("bulkModuleStdinFileInput");
+const refreshBulkModulesButton = document.getElementById("refreshBulkModulesButton");
+const runSelectedModuleButton = document.getElementById("runSelectedModuleButton");
+const bulkModuleOutput = document.getElementById("bulkModuleOutput");
 const offlineDeleteOverlay = document.getElementById("offlineDeleteOverlay");
 const offlineDeleteMessage = document.getElementById("offlineDeleteMessage");
 const offlineDeleteError = document.getElementById("offlineDeleteError");
@@ -67,6 +78,36 @@ const OS_FILTERS = [
 
 const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_MODULE_STDIN_LABEL = "8 MiB";
+const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const MODULE_FORM_HELP = {
+  pscan: {
+    argsPlaceholder: "-h localhost -p 80,443 --json",
+    stdinPlaceholder: "not used by pscan",
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json"
+  },
+  execass: {
+    argsPlaceholder: "--args \"currentluid\" --debug",
+    stdinPlaceholder: "upload or paste a .NET assembly artifact",
+    text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
+  },
+  service: {
+    argsPlaceholder: "--install or --uninstall",
+    stdinPlaceholder: "not used by service",
+    text: "Installs or removes the default rssh Windows service. Requires elevated privileges."
+  },
+  setuid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setuid",
+    text: "Changes the Linux client process UID."
+  },
+  setgid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setgid",
+    text: "Changes the Linux client process GID."
+  }
+};
 
 const pageState = {
   hosts: [],
@@ -80,6 +121,13 @@ const pageState = {
   selectedRows: new Set(),
   runningRows: new Set(),
   commandResults: new Map(),
+  bulkModules: {
+    items: [],
+    loading: false,
+    running: false,
+    error: "",
+    loadedRowKey: ""
+  },
   pendingOfflineDelete: null,
   pendingOnlineDelete: null,
   contextRowKey: "",
@@ -111,6 +159,14 @@ clearSelectedHostsButton.addEventListener("click", () => {
   renderHosts();
 });
 runSelectedHostsButton.addEventListener("click", runSelectedHosts);
+bulkModulePanel?.addEventListener("toggle", () => {
+  if (bulkModulePanel.open) {
+    void loadBulkModules(false);
+  }
+});
+refreshBulkModulesButton?.addEventListener("click", () => loadBulkModules(true));
+bulkModuleSelect?.addEventListener("change", syncBulkModuleHelp);
+runSelectedModuleButton?.addEventListener("click", runSelectedModuleOnHosts);
 bulkCommandInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") {
     return;
@@ -197,6 +253,12 @@ hostTable.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy-command]");
   if (copyButton) {
     await copyFromButton(copyButton, copyButton.dataset.copyCommand, "Copied");
+    return;
+  }
+
+  const copyResultButton = event.target.closest("[data-copy-result]");
+  if (copyResultButton) {
+    await copyExecutionResult(copyResultButton);
     return;
   }
 
@@ -540,41 +602,82 @@ function renderRow(row) {
         </span>
       </div>
       ${running ? `<div class="hosts-row-running"><span class="chip">Running command...</span></div>` : ""}
-      ${renderCommandResult(execution)}
+      ${renderCommandResult(execution, row.key)}
     </article>
   `;
 }
 
-function renderCommandResult(execution) {
+function renderCommandResult(execution, rowKey) {
   if (!execution) {
     return "";
   }
 
-  const status = execution.error
-    ? (execution.timedOut ? "Timed out" : "Failed")
-    : "Completed";
-  const statusClass = execution.error ? "offline" : "online";
+  const status = execution.timedOut
+    ? "Timed out"
+    : (execution.error ? "Failed" : "Completed");
+  const statusClass = execution.error || execution.timedOut ? "offline" : "online";
+  const resultLabel = execution.kind === "module" ? "Module result" : "Command result";
 
-  let body = execution.output || "";
-  if (execution.error) {
-    body = body ? `${body}\n\n[error] ${execution.error}` : `[error] ${execution.error}`;
-  }
-  if (!body) {
-    body = "[no output]";
-  }
+  const body = executionOutputText(execution);
 
   return `
     <div class="client-command-result shell-panel">
       <div class="client-command-result-head">
         <div>
-          <p class="eyebrow">Command result</p>
+          <p class="eyebrow">${escapeHtml(resultLabel)}</p>
           <h4>${escapeHtml(execution.command)}</h4>
         </div>
-        <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        <div class="client-command-result-actions">
+          <button class="ghost-button fs-small-button" type="button" data-copy-result="${escapeAttribute(rowKey)}">Copy output</button>
+          <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        </div>
       </div>
       <pre class="output-block small-output">${escapeHtml(body)}</pre>
     </div>
   `;
+}
+
+function executionOutputText(execution) {
+  if (!execution) {
+    return "";
+  }
+
+  const bodyParts = [];
+  if (execution.output) {
+    bodyParts.push(execution.output);
+  }
+  if (execution.timedOut) {
+    bodyParts.push("[timed out]");
+  }
+  if (execution.truncated) {
+    bodyParts.push("[output truncated]");
+  }
+  if (execution.error) {
+    bodyParts.push(`[error] ${execution.error}`);
+  }
+  return bodyParts.join(bodyParts.length > 1 ? "\n\n" : "") || "[no output]";
+}
+
+async function copyExecutionResult(button) {
+  const rowKey = button.dataset.copyResult || "";
+  const execution = pageState.commandResults.get(rowKey);
+  if (!execution) {
+    return;
+  }
+
+  const original = button.textContent;
+  button.disabled = true;
+  try {
+    await copyText(executionOutputText(execution));
+    button.textContent = "Copied";
+  } catch (error) {
+    button.textContent = "Copy failed";
+  } finally {
+    window.setTimeout(() => {
+      button.textContent = original;
+      button.disabled = false;
+    }, 1000);
+  }
 }
 
 function openHostContextMenu(rowKey, x, y) {
@@ -683,6 +786,395 @@ function syncBulkControls(rows) {
   clearSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run selected";
+  syncBulkModuleControls();
+}
+
+function selectedHostRows() {
+  const rowMap = new Map(getClientRows(pageState.hosts).map((row) => [row.key, row]));
+  return [...pageState.selectedRows]
+    .map((key) => rowMap.get(key))
+    .filter(Boolean);
+}
+
+function firstSelectedOnlineRow() {
+  return selectedHostRows().find((row) => row.connected) || null;
+}
+
+function syncBulkModuleControls() {
+  if (!bulkModuleSelect || !runSelectedModuleButton || !refreshBulkModulesButton) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const onlineRows = selectedRows.filter((row) => row.connected);
+  const sourceRow = onlineRows[0] || null;
+  if (bulkModulePanel?.open && sourceRow && sourceRow.key !== pageState.bulkModules.loadedRowKey && !pageState.bulkModules.loading && !pageState.bulkModules.running) {
+    void loadBulkModules(true);
+  }
+  if (!onlineRows.length && pageState.bulkModules.items.length) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    syncBulkModuleHelp();
+  }
+
+  const selectedModule = bulkModuleSelect.value.trim();
+  const selectedManifest = pageState.bulkModules.items.find((module) => module.name === selectedModule);
+
+  refreshBulkModulesButton.disabled = onlineRows.length === 0 || pageState.bulkModules.loading || pageState.bulkModules.running;
+  bulkModuleSelect.disabled = pageState.bulkModules.loading || pageState.bulkModules.running || pageState.bulkModules.items.length === 0;
+  runSelectedModuleButton.disabled = (
+    selectedRows.length === 0 ||
+    !selectedModule ||
+    Boolean(selectedManifest?.disabled) ||
+    pageState.bulkModules.loading ||
+    pageState.bulkModules.running ||
+    pageState.runningRows.size > 0
+  );
+  refreshBulkModulesButton.textContent = pageState.bulkModules.loading ? "Loading..." : "Refresh modules";
+  runSelectedModuleButton.textContent = pageState.bulkModules.running ? "Running..." : "Run module";
+}
+
+async function loadBulkModules(force) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const row = firstSelectedOnlineRow();
+  if (!row) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput("Select at least one online host to load modules.");
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+    return;
+  }
+
+  if (!force && pageState.bulkModules.loadedRowKey === row.key && pageState.bulkModules.items.length) {
+    syncBulkModuleControls();
+    return;
+  }
+
+  pageState.bulkModules.loading = true;
+  pageState.bulkModules.error = "";
+  setBulkModuleOutput(`Loading modules from ${row.hostname || row.stableId}...`);
+  syncBulkModuleControls();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/${encodeURIComponent(row.stableId)}/modules?connectionId=${encodeURIComponent(row.connectionId || "")}`, pageState.ctx?.project || ""));
+    pageState.bulkModules.items = visibleWebModules(response.items || []).map((module) => moduleForRow(module, row));
+    pageState.bulkModules.loadedRowKey = row.key;
+    renderBulkModuleOptions(row);
+  } catch (error) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.loading = false;
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+  }
+}
+
+function renderBulkModuleOptions(sourceRow) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const modules = pageState.bulkModules.items;
+  const previous = bulkModuleSelect.value;
+  bulkModuleSelect.innerHTML = modules.map((module) => (
+    `<option value="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>${escapeHtml(module.name || "unnamed")}</option>`
+  )).join("");
+
+  const selected = modules.find((module) => module.name === previous && !module.disabled) || modules.find((module) => !module.disabled) || modules[0] || null;
+  if (selected) {
+    bulkModuleSelect.value = selected.name;
+  }
+
+  setBulkModuleOutput(modules.length
+    ? `Modules loaded from ${sourceRow.hostname || sourceRow.stableId}.`
+    : "No runnable web modules reported by the selected host.");
+}
+
+function syncBulkModuleHelp() {
+  if (!bulkModuleSelect || !bulkModuleHelpText) {
+    return;
+  }
+
+  const module = pageState.bulkModules.items.find((item) => item.name === bulkModuleSelect.value) || null;
+  const name = String(module?.name || "").toLowerCase();
+  const help = MODULE_FORM_HELP[name] || {};
+  bulkModuleHelpText.textContent = module ? (help.text || module.usage || "") : "";
+
+  if (bulkModuleArgsInput) {
+    bulkModuleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
+  }
+  if (bulkModuleStdinInput) {
+    bulkModuleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  }
+}
+
+function setBulkModuleOutput(message, type = "muted") {
+  if (!bulkModuleOutput) {
+    return;
+  }
+  bulkModuleOutput.textContent = message || "";
+  bulkModuleOutput.classList.toggle("error-text", type === "error");
+  bulkModuleOutput.classList.toggle("muted", type !== "error");
+}
+
+function visibleWebModules(modules) {
+  return (modules || []).filter((module) => !HIDDEN_WEB_MODULES.has(String(module?.name || "").toLowerCase()));
+}
+
+function moduleForRow(module, row) {
+  const platforms = (module?.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+  if (!platforms.length) {
+    return module;
+  }
+
+  const hostOS = parsePlatform(row?.version || "").os;
+  if (!hostOS || platforms.includes(hostOS)) {
+    return module;
+  }
+
+  return {
+    ...module,
+    disabled: true,
+    disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
+  };
+}
+
+async function runSelectedModuleOnHosts() {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const moduleName = bulkModuleSelect.value.trim();
+  if (!selectedRows.length) {
+    setBulkModuleOutput("Select at least one host first.", "error");
+    return;
+  }
+  if (!moduleName) {
+    setBulkModuleOutput("Choose a module to run.", "error");
+    return;
+  }
+  if (HIDDEN_WEB_MODULES.has(moduleName.toLowerCase())) {
+    setBulkModuleOutput("This transport helper module is hidden from the web runner.", "error");
+    return;
+  }
+
+  const manifest = pageState.bulkModules.items.find((module) => module.name === moduleName) || null;
+  if (!manifest) {
+    setBulkModuleOutput("Refresh modules before running this module.", "error");
+    return;
+  }
+  if (manifest.disabled) {
+    setBulkModuleOutput(manifest.disabledReason || "This module is disabled by the selected host.", "error");
+    return;
+  }
+
+  let args = [];
+  try {
+    args = parseModuleArgs(bulkModuleArgsInput?.value || "");
+  } catch (error) {
+    setBulkModuleOutput(error.message, "error");
+    return;
+  }
+
+  let stdin = bulkModuleStdinInput?.value || "";
+  let stdinBase64 = "";
+  const stdinFile = bulkModuleStdinFileInput?.files?.[0] || null;
+  if (stdinFile && stdin) {
+    setBulkModuleOutput("Use either stdin text or stdin file, not both.", "error");
+    return;
+  }
+  if (stdinFile) {
+    if (stdinFile.size > moduleStdinLimitBytes(moduleName)) {
+      setBulkModuleOutput(`Stdin file is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
+      return;
+    }
+    try {
+      stdinBase64 = await readFileAsBase64(stdinFile);
+      stdin = "";
+    } catch (error) {
+      setBulkModuleOutput(error.message, "error");
+      return;
+    }
+  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(moduleName)) {
+    setBulkModuleOutput(`Stdin is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
+    return;
+  }
+
+  const command = moduleCommandLabel(moduleName, args);
+  const targetRows = [];
+  selectedRows.forEach((row) => {
+    const rowManifest = moduleForRow(manifest, row);
+    pageState.commandResults.delete(row.key);
+    if (rowManifest.disabled) {
+      pageState.commandResults.set(row.key, {
+        kind: "module",
+        command,
+        output: "",
+        error: rowManifest.disabledReason || "This module is not available for this host.",
+        timedOut: false,
+        truncated: false
+      });
+      return;
+    }
+    targetRows.push(row);
+  });
+
+  if (!targetRows.length) {
+    setBulkModuleOutput("No selected hosts can run this module.", "error");
+    renderHosts();
+    return;
+  }
+
+  pageState.bulkModules.running = true;
+  targetRows.forEach((row) => pageState.runningRows.add(row.key));
+  setBulkModuleOutput(`Running ${moduleName} on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}...`);
+  renderHosts();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/modules/${encodeURIComponent(moduleName)}/run`, pageState.ctx?.project || ""), {
+      method: "POST",
+      body: JSON.stringify({
+        targets: targetRows.map((row) => ({
+          stableId: row.stableId,
+          connectionId: row.connectionId || ""
+        })),
+        args,
+        stdin,
+        stdinBase64,
+        timeoutSeconds: numberFieldValue(bulkModuleTimeoutInput, 60),
+        outputLimitBytes: numberFieldValue(bulkModuleOutputLimitInput, 1024 * 1024)
+      })
+    });
+
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    for (const item of response.items || []) {
+      const key = item.key || `${item.stableId}:${item.connectionId || "offline"}`;
+      pageState.commandResults.set(key, {
+        kind: "module",
+        command,
+        output: item.output || "",
+        error: item.error || "",
+        timedOut: Boolean(item.timedOut),
+        truncated: Boolean(item.truncated)
+      });
+    }
+    setBulkModuleOutput(`Module ${moduleName} completed on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.running = false;
+    renderHosts();
+  }
+}
+
+function moduleCommandLabel(moduleName, args) {
+  const suffix = args.length ? ` ${args.map((arg) => quoteModuleArg(arg)).join(" ")}` : "";
+  return `${moduleName}${suffix}`;
+}
+
+function quoteModuleArg(value) {
+  const arg = String(value || "");
+  if (!arg || /\s/.test(arg)) {
+    return `"${arg.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  }
+  return arg;
+}
+
+function moduleStdinLimitBytes(moduleName) {
+  const module = (pageState.bulkModules.items || []).find((item) => item.name === moduleName);
+  const limit = Number(module?.limits?.stdinBytes || 0);
+  if (limit > 0) {
+    return Math.min(limit, MAX_MODULE_STDIN_BYTES);
+  }
+  return MAX_MODULE_STDIN_BYTES;
+}
+
+function moduleStdinLimitLabel(moduleName) {
+  const limit = moduleStdinLimitBytes(moduleName);
+  if (limit === MAX_MODULE_STDIN_BYTES) {
+    return MAX_MODULE_STDIN_LABEL;
+  }
+  return `${limit} bytes`;
+}
+
+function textByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
+async function readFileAsBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function parseModuleArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const char of String(raw || "")) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== "") {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("Unclosed quote in module args.");
+  }
+  if (current !== "") {
+    args.push(current);
+  }
+  return args;
+}
+
+function numberFieldValue(field, fallback) {
+  const value = Number(field?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function pruneRowState(rows) {

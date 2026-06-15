@@ -868,15 +868,17 @@ export function artifactSizeLabel(value) {
   return Number(value || 0).toFixed(2);
 }
 
-export function renderArtifactLink(label, url) {
+export function renderArtifactLink(label, url, options = {}) {
+  const displayText = options.displayText || url;
+  const copyText = options.copyText || displayText;
   return `
     <div class="artifact-link">
       <strong>${escapeHtml(label)}</strong>
       <div class="artifact-actions">
         <a class="inline-link" href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open</a>
-        <button class="ghost-button" data-copy-artifact="${escapeAttribute(url)}">Copy</button>
+        <button class="ghost-button" data-copy-artifact="${escapeAttribute(copyText)}">Copy</button>
       </div>
-      <code>${escapeHtml(url)}</code>
+      <code>${escapeHtml(displayText)}</code>
     </div>
   `;
 }

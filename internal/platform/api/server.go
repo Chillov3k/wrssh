@@ -79,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/hosts/{stableID}/modules", s.requireUser(http.HandlerFunc(s.handleHostModules)))
 	mux.Handle("POST /api/hosts/{stableID}/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostModule)))
 	mux.Handle("POST /api/hosts/exec", s.requireUser(http.HandlerFunc(s.handleExecuteHosts)))
+	mux.Handle("POST /api/hosts/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostsModule)))
 	mux.Handle("DELETE /api/hosts/offline", s.requireUser(http.HandlerFunc(s.handleDeleteOfflineHosts)))
 	mux.Handle("PATCH /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleUpdateHost)))
 	mux.Handle("DELETE /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleDeleteHost)))

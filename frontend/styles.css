@@ -1831,6 +1831,106 @@ pre {
   width: 100%;
 }
 
+.bulk-module-panel {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(11, 99, 215, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.66);
+  overflow: hidden;
+}
+
+.bulk-module-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 850;
+  cursor: pointer;
+  list-style: none;
+}
+
+.bulk-module-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.bulk-module-panel summary::before {
+  content: "+";
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.bulk-module-panel[open] summary::before {
+  content: "-";
+}
+
+.bulk-module-panel summary span {
+  margin-right: auto;
+}
+
+.bulk-module-panel summary small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.bulk-module-content {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.bulk-module-help {
+  margin-top: -3px;
+  font-size: 0.68rem;
+}
+
+.bulk-module-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) 96px 124px;
+  gap: 8px;
+  align-items: end;
+}
+
+.bulk-module-stdin-row {
+  grid-template-columns: minmax(260px, 1fr) minmax(190px, 0.75fr) auto;
+}
+
+.bulk-module-row .field-stack {
+  gap: 3px;
+}
+
+.bulk-module-row .field-stack span,
+.bulk-module-row .field-stack small {
+  font-size: 0.68rem;
+}
+
+.bulk-module-row .search-input {
+  min-height: 30px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+}
+
+.bulk-module-row textarea.search-input {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.bulk-module-actions {
+  align-self: end;
+}
+
 .host-context-menu {
   position: fixed;
   z-index: 120;
@@ -1884,6 +1984,14 @@ pre {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 12px;
+}
+
+.client-command-result-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .client-command-result h4 {
@@ -2927,6 +3035,11 @@ html[data-theme="dark"] .hosts-console-panel {
   border-color: rgba(143, 173, 255, 0.14);
 }
 
+html[data-theme="dark"] .bulk-module-panel {
+  background: rgba(17, 27, 42, 0.72);
+  border-color: rgba(143, 173, 255, 0.14);
+}
+
 html[data-theme="dark"] .host-context-menu button {
   color: var(--text);
 }
@@ -3150,6 +3263,11 @@ html[data-theme="dark"] .fs-empty {
   }
 
   .hosts-console-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-module-row,
+  .bulk-module-stdin-row {
     grid-template-columns: 1fr;
   }
 
