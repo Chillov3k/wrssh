@@ -220,6 +220,7 @@ func Build(config BuildConfig) (string, error) {
 	if len(f.Goarm) != 0 {
 		cmd.Env = append(cmd.Env, "GOARM="+f.Goarm)
 	}
+	cmd.Env = appendDefaultMIPSEnv(cmd.Env, f.Goarch)
 
 	//Building a shared object for windows needs some extra beans
 	cgoOn := "0"
@@ -438,6 +439,30 @@ func generatedBusyBoxSource(compressed []byte) []byte {
 	}
 	output.WriteString("}\n")
 	return output.Bytes()
+}
+
+func appendDefaultMIPSEnv(env []string, goarch string) []string {
+	switch goarch {
+	case "mips", "mipsle":
+		if !envHasKey(env, "GOMIPS") {
+			env = append(env, "GOMIPS=softfloat")
+		}
+	case "mips64", "mips64le":
+		if !envHasKey(env, "GOMIPS64") {
+			env = append(env, "GOMIPS64=softfloat")
+		}
+	}
+	return env
+}
+
+func envHasKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func startBuildManager(_cachePath string) error {

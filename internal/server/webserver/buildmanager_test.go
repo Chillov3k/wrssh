@@ -126,3 +126,43 @@ func TestPrepareBusyBoxOverlayRejectsNonLinuxTarget(t *testing.T) {
 		t.Fatal("expected non-linux busybox overlay target to be rejected")
 	}
 }
+
+func TestAppendDefaultMIPSEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		arch string
+		env  []string
+		want string
+	}{
+		{name: "mips", arch: "mips", want: "GOMIPS=softfloat"},
+		{name: "mipsle", arch: "mipsle", want: "GOMIPS=softfloat"},
+		{name: "mips64", arch: "mips64", want: "GOMIPS64=softfloat"},
+		{name: "mips64le", arch: "mips64le", want: "GOMIPS64=softfloat"},
+		{name: "non mips", arch: "amd64", want: ""},
+		{name: "keeps explicit gomips", arch: "mips", env: []string{"GOMIPS=hardfloat"}, want: "GOMIPS=hardfloat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendDefaultMIPSEnv(append([]string(nil), tt.env...), tt.arch)
+			if tt.want == "" {
+				if envHasKey(got, "GOMIPS") || envHasKey(got, "GOMIPS64") {
+					t.Fatalf("did not expect MIPS env for %s: %v", tt.arch, got)
+				}
+				return
+			}
+			if !containsEnv(got, tt.want) {
+				t.Fatalf("expected %q in env: %v", tt.want, got)
+			}
+		})
+	}
+}
+
+func containsEnv(env []string, value string) bool {
+	for _, item := range env {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}

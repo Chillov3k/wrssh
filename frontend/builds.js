@@ -11,6 +11,8 @@ import {
 } from "./shared.js";
 
 const CUSTOM_ADDRESS_VALUE = "__custom__";
+const FRONTEND_GOOS_FALLBACKS = ["linux", "windows", "darwin", "freebsd"];
+const FRONTEND_GOARCH_FALLBACKS = ["amd64", "arm64", "386", "mips", "mipsle", "mips64", "mips64le"];
 
 const form = byId("artifactForm");
 const artifactBuilderPanel = byId("artifactBuilderPanel");
@@ -56,12 +58,12 @@ function populateBuildOptions() {
   const options = pageState.systemOptions;
   populateSelect(connectBackHost, buildAddressItems(options), options.defaultInterface);
 
-  populateSelect(goosSelect, options.goos.map((value) => ({
+  populateSelect(goosSelect, mergedGOOSOptions(options).map((value) => ({
     value,
     label: value
   })), goosSelect.value || "linux");
 
-  populateSelect(goarchSelect, options.goarch.map((value) => ({
+  populateSelect(goarchSelect, mergedGOARCHOptions(options).map((value) => ({
     value,
     label: value
   })), goarchSelect.value || "amd64");
@@ -74,6 +76,28 @@ function populateBuildOptions() {
   syncCompressionOptions();
   syncArtifactNameRequirement();
   applyBuildFlagHelp(options);
+}
+
+function mergedGOOSOptions(options) {
+  return uniqueStrings([...(options.goos || []), ...FRONTEND_GOOS_FALLBACKS]);
+}
+
+function mergedGOARCHOptions(options) {
+  return uniqueStrings([...(options.goarch || []), ...FRONTEND_GOARCH_FALLBACKS]);
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+  for (const rawValue of values) {
+    const value = String(rawValue || "").trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function buildAddressItems(options) {
