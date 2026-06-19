@@ -15,6 +15,8 @@ export class TerminalView {
     this.connected = false;
     this.focused = false;
     this.pendingRender = false;
+    this.cols = 120;
+    this.rows = 36;
     this.reset("");
 
     this.viewport.addEventListener("mousedown", () => {
@@ -35,11 +37,23 @@ export class TerminalView {
     this.scheduleRender();
   }
 
+  setSize(cols, rows) {
+    const nextCols = Number(cols);
+    const nextRows = Number(rows);
+    if (Number.isFinite(nextCols) && nextCols > 0) {
+      this.cols = Math.floor(nextCols);
+    }
+    if (Number.isFinite(nextRows) && nextRows > 0) {
+      this.rows = Math.floor(nextRows);
+    }
+  }
+
   reset(message = "") {
     this.lines = [[]];
     this.cursorRow = 0;
     this.cursorCol = 0;
     this.savedCursor = null;
+    this.pendingWrap = false;
     this.state = "normal";
     this.csiBuffer = "";
 
@@ -91,13 +105,16 @@ export class TerminalView {
 
     switch (char) {
       case "\r":
+        this.pendingWrap = false;
         this.cursorCol = 0;
         return;
       case "\n":
+        this.pendingWrap = false;
         this.cursorRow += 1;
         this.ensureLine(this.cursorRow);
         return;
       case "\b":
+        this.pendingWrap = false;
         this.cursorCol = Math.max(0, this.cursorCol - 1);
         return;
       case "\t":
@@ -204,33 +221,48 @@ export class TerminalView {
 
     switch (final) {
       case "A":
-        this.cursorRow = Math.max(0, this.cursorRow - value(0, 1));
+        this.pendingWrap = false;
+        this.cursorRow = Math.max(this.screenTopRow(), this.cursorRow - value(0, 1));
         break;
       case "B":
+        this.pendingWrap = false;
         this.cursorRow += value(0, 1);
         this.ensureLine(this.cursorRow);
         break;
       case "C":
+        this.pendingWrap = false;
         this.cursorCol += value(0, 1);
         break;
       case "D":
+        this.pendingWrap = false;
         this.cursorCol = Math.max(0, this.cursorCol - value(0, 1));
         break;
       case "E":
+        this.pendingWrap = false;
         this.cursorRow += value(0, 1);
         this.ensureLine(this.cursorRow);
         this.cursorCol = 0;
         break;
       case "F":
-        this.cursorRow = Math.max(0, this.cursorRow - value(0, 1));
+        this.pendingWrap = false;
+        this.cursorRow = Math.max(this.screenTopRow(), this.cursorRow - value(0, 1));
         this.cursorCol = 0;
         break;
       case "G":
+        this.pendingWrap = false;
         this.cursorCol = Math.max(0, value(0, 1) - 1);
         break;
       case "H":
       case "f":
-        this.setCursor(value(0, 1) - 1, value(1, 1) - 1);
+        this.setScreenCursor(value(0, 1) - 1, value(1, 1) - 1);
+        break;
+      case "d":
+        this.setScreenCursor(value(0, 1) - 1, this.cursorCol);
+        break;
+      case "e":
+        this.pendingWrap = false;
+        this.cursorRow += value(0, 1);
+        this.ensureLine(this.cursorRow);
         break;
       case "J":
         this.eraseDisplay(params[0] ?? 0);
@@ -263,9 +295,18 @@ export class TerminalView {
   }
 
   setCursor(row, col) {
+    this.pendingWrap = false;
     this.cursorRow = Math.max(0, row);
     this.ensureLine(this.cursorRow);
     this.cursorCol = Math.max(0, col);
+  }
+
+  setScreenCursor(row, col) {
+    this.setCursor(this.screenTopRow() + Math.max(0, row), col);
+  }
+
+  screenTopRow() {
+    return Math.max(0, this.lines.length - Math.max(1, this.rows));
   }
 
   saveCursor() {
@@ -290,6 +331,12 @@ export class TerminalView {
   }
 
   writeChar(char) {
+    if (this.pendingWrap) {
+      this.cursorRow += 1;
+      this.cursorCol = 0;
+      this.pendingWrap = false;
+    }
+
     const line = this.ensureLine(this.cursorRow);
     while (line.length < this.cursorCol) {
       line.push(" ");
@@ -302,6 +349,9 @@ export class TerminalView {
     }
 
     this.cursorCol += 1;
+    if (this.cols > 0 && this.cursorCol >= this.cols) {
+      this.pendingWrap = true;
+    }
   }
 
   ensureLine(row) {

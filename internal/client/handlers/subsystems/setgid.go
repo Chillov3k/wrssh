@@ -3,29 +3,43 @@
 package subsystems
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"syscall"
-
-	"github.com/NHAS/reverse_ssh/internal/terminal"
-	"golang.org/x/crypto/ssh"
 )
 
-type setgid bool
+type setgidModule struct{}
 
-func (su *setgid) Execute(line terminal.ParsedLine, connection ssh.Channel, subsystemReq *ssh.Request) error {
+func newSetgidModule() Module {
+	return &setgidModule{}
+}
 
-	subsystemReq.Reply(true, nil)
+func (su *setgidModule) Manifest() Manifest {
+	return Manifest{
+		Name:        "setgid",
+		Description: "Set the client process GID.",
+		Usage:       "setgid <gid>",
+		Dangerous:   true,
+		Platforms:   []string{"linux"},
+		Limits: ModuleLimits{
+			TimeoutSeconds: 5,
+			OutputBytes:    16 * 1024,
+			MaxArgs:        1,
+		},
+	}
+}
 
-	if len(line.Arguments) != 1 {
-		fmt.Fprintf(connection, "setgid only takes one argument, the uid to set rssh to.")
+func (su *setgidModule) Run(_ context.Context, io ModuleIO, args []string) error {
+	if len(args) != 1 {
+		fmt.Fprintf(io, "setgid only takes one argument, the uid to set rssh to.")
 		return nil
 	}
 
-	gid, err := strconv.Atoi(line.Arguments[0].Value())
+	gid, err := strconv.Atoi(args[0])
 
 	if err != nil {
-		fmt.Fprintf(connection, "%s", err.Error())
+		fmt.Fprintf(io, "%s", err.Error())
 		return nil
 	}
 

@@ -1,6 +1,13 @@
 package webserver
 
-import "testing"
+import (
+	"encoding/json"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestValidateBuildConfigAcceptsSafeValues(t *testing.T) {
 	config := BuildConfig{
@@ -59,4 +66,103 @@ func TestValidateBuildConfigRejectsMultiLineComment(t *testing.T) {
 	if err := validateBuildConfig(config); err == nil {
 		t.Fatal("expected multiline comment to be rejected")
 	}
+}
+
+func TestNormalizeModuleBuildTags(t *testing.T) {
+	tags, err := normalizeModuleBuildTags([]string{" pscan ", "execass", "pscan", ""})
+	if err != nil {
+		t.Fatalf("normalizeModuleBuildTags returned error: %v", err)
+	}
+	if len(tags) != 2 || tags[0] != "execass" || tags[1] != "pscan" {
+		t.Fatalf("tags = %v, want [execass pscan]", tags)
+	}
+}
+
+func TestValidateBuildConfigRejectsUnsupportedBuildTag(t *testing.T) {
+	if err := validateBuildConfig(BuildConfig{BuildTags: []string{"unsafe"}}); err == nil {
+		t.Fatal("expected unsupported build tag to be rejected")
+	}
+}
+
+func TestPrepareBusyBoxOverlayUsesConfiguredBinary(t *testing.T) {
+	busyboxPath := filepath.Join(t.TempDir(), "busybox-amd64")
+	if err := os.WriteFile(busyboxPath, []byte("fake-busybox"), 0700); err != nil {
+		t.Fatalf("write fake busybox: %v", err)
+	}
+	t.Setenv("RSSH_BUSYBOX_AMD64_PATH", busyboxPath)
+
+	overlayPath, cleanup, err := prepareBusyBoxOverlay("linux", "amd64")
+	if err != nil {
+		t.Fatalf("prepare busybox overlay: %v", err)
+	}
+	defer cleanup()
+
+	overlayBytes, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatalf("read overlay: %v", err)
+	}
+
+	var overlay goBuildOverlay
+	if err := json.Unmarshal(overlayBytes, &overlay); err != nil {
+		t.Fatalf("decode overlay: %v", err)
+	}
+
+	generatedPath := overlay.Replace[filepath.Join(projectRoot, "internal/client/busybox/embedded.go")]
+	if generatedPath == "" {
+		t.Fatalf("expected embedded busybox source replacement in overlay: %#v", overlay.Replace)
+	}
+
+	generatedSource, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read generated source: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), generatedPath, generatedSource, 0); err != nil {
+		t.Fatalf("generated source is not valid Go: %v", err)
+	}
+}
+
+func TestPrepareBusyBoxOverlayRejectsNonLinuxTarget(t *testing.T) {
+	if _, _, err := prepareBusyBoxOverlay("windows", "amd64"); err == nil {
+		t.Fatal("expected non-linux busybox overlay target to be rejected")
+	}
+}
+
+func TestAppendDefaultMIPSEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		arch string
+		env  []string
+		want string
+	}{
+		{name: "mips", arch: "mips", want: "GOMIPS=softfloat"},
+		{name: "mipsle", arch: "mipsle", want: "GOMIPS=softfloat"},
+		{name: "mips64", arch: "mips64", want: "GOMIPS64=softfloat"},
+		{name: "mips64le", arch: "mips64le", want: "GOMIPS64=softfloat"},
+		{name: "non mips", arch: "amd64", want: ""},
+		{name: "keeps explicit gomips", arch: "mips", env: []string{"GOMIPS=hardfloat"}, want: "GOMIPS=hardfloat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendDefaultMIPSEnv(append([]string(nil), tt.env...), tt.arch)
+			if tt.want == "" {
+				if envHasKey(got, "GOMIPS") || envHasKey(got, "GOMIPS64") {
+					t.Fatalf("did not expect MIPS env for %s: %v", tt.arch, got)
+				}
+				return
+			}
+			if !containsEnv(got, tt.want) {
+				t.Fatalf("expected %q in env: %v", tt.want, got)
+			}
+		})
+	}
+}
+
+func containsEnv(env []string, value string) bool {
+	for _, item := range env {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

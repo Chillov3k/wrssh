@@ -84,6 +84,48 @@
               </div>
             </div>
             <p id="bulkExecOutput" class="error-text bulk-exec-output"></p>
+            <details id="bulkModulePanel" class="bulk-module-panel">
+              <summary>
+                <span>Run module on selected hosts</span>
+                <small>Load modules from the first selected online host</small>
+              </summary>
+              <div class="bulk-module-content">
+                <div class="bulk-module-row">
+                  <label class="field-stack">
+                    <span>Module</span>
+                    <select id="bulkModuleSelect" class="search-input"></select>
+                  </label>
+                  <label class="field-stack">
+                    <span>Arguments</span>
+                    <input id="bulkModuleArgsInput" class="search-input" type="text" placeholder="module arguments" autocomplete="off" spellcheck="false">
+                  </label>
+                  <label class="field-stack">
+                    <span>Timeout</span>
+                    <input id="bulkModuleTimeoutInput" class="search-input" type="number" min="1" max="600" value="60">
+                  </label>
+                  <label class="field-stack">
+                    <span>Output limit</span>
+                    <input id="bulkModuleOutputLimitInput" class="search-input" type="number" min="1024" max="4194304" value="1048576">
+                  </label>
+                </div>
+                <small id="bulkModuleHelpText" class="field-help muted bulk-module-help"></small>
+                <div class="bulk-module-row bulk-module-stdin-row">
+                  <label class="field-stack">
+                    <span>Stdin text</span>
+                    <textarea id="bulkModuleStdinInput" class="search-input" rows="3" placeholder="optional stdin"></textarea>
+                  </label>
+                  <label class="field-stack">
+                    <span>Stdin file</span>
+                    <input id="bulkModuleStdinFileInput" class="search-input" type="file">
+                  </label>
+                  <div class="bulk-exec-actions bulk-module-actions">
+                    <button id="refreshBulkModulesButton" class="ghost-button" type="button">Refresh modules</button>
+                    <button id="runSelectedModuleButton" class="action-button" type="button">Run module</button>
+                  </div>
+                </div>
+                <p id="bulkModuleOutput" class="muted bulk-exec-output"></p>
+              </div>
+            </details>
           </div>
         </div>
       </section>
@@ -160,6 +202,10 @@
           <span class="command-label">Selected directory</span>
           <strong id="filesystemCurrentPath">/</strong>
         </div>
+        <form id="filesystemPathForm" class="filesystem-path-form">
+          <input id="filesystemPathInput" type="text" placeholder="~/.ssh, /etc/ssh, C:/Users" autocomplete="off" spellcheck="false">
+          <button id="filesystemGoButton" class="ghost-button" type="submit">Go</button>
+        </form>
         <div class="inline-actions">
           <button id="refreshFilesystemButton" class="ghost-button" type="button">Refresh</button>
           <button id="uploadFilesystemButton" class="action-button" type="button">Upload</button>

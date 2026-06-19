@@ -426,6 +426,60 @@ func TestReconcileConnectedHostsMarksStaleEntriesOffline(t *testing.T) {
 	}
 }
 
+func TestDeleteHostsRemovesRecordsAndSessionsInBulk(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+
+	for _, stableID := range []string{"fp-alpha", "fp-beta", "fp-gamma"} {
+		if _, err := store.UpsertHostFromSnapshot(users.ClientSnapshot{
+			ConnectionID: "conn-" + stableID,
+			StableID:     stableID,
+			Hostname:     stableID + "-host",
+			RemoteAddr:   "10.0.0.10:2222",
+			RemoteIP:     "10.0.0.10",
+			Version:      "SSH-test",
+		}, now); err != nil {
+			t.Fatalf("upsert host %s: %v", stableID, err)
+		}
+		if _, err := store.StartSession(SessionRecord{
+			SessionUID:   "session-" + stableID,
+			Type:         "web-shell",
+			Status:       "active",
+			HostStableID: stableID,
+			Hostname:     stableID + "-host",
+			StartedAt:    now,
+		}); err != nil {
+			t.Fatalf("start session %s: %v", stableID, err)
+		}
+	}
+
+	deleted, err := store.DeleteHosts([]string{"fp-alpha", "fp-beta", "fp-alpha", ""})
+	if err != nil {
+		t.Fatalf("delete hosts: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected 2 deleted hosts, got %d", deleted)
+	}
+
+	if _, err := store.GetHostByStableID("fp-alpha"); err == nil {
+		t.Fatal("expected fp-alpha to be deleted")
+	}
+	if _, err := store.GetHostByStableID("fp-beta"); err == nil {
+		t.Fatal("expected fp-beta to be deleted")
+	}
+	if _, err := store.GetHostByStableID("fp-gamma"); err != nil {
+		t.Fatalf("expected fp-gamma to remain: %v", err)
+	}
+
+	sessions, err := store.ListSessions(10)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].HostStableID != "fp-gamma" {
+		t.Fatalf("expected only fp-gamma session to remain, got %+v", sessions)
+	}
+}
+
 func TestUpdateAndDeleteProjectCascade(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Now()

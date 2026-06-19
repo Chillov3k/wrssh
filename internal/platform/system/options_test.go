@@ -54,6 +54,22 @@ func TestDiscoverBuildOptionsPrefersConfiguredLabelOverExternalDuplicate(t *test
 	}
 }
 
+func TestSupportedGOARCHIncludesMIPS(t *testing.T) {
+	options := supportedGOARCH()
+	for _, arch := range []string{"mips", "mipsle", "mips64", "mips64le"} {
+		if !hasString(options, arch) {
+			t.Fatalf("expected supported GOARCH list to include %q: %v", arch, options)
+		}
+	}
+}
+
+func TestSupportedGOOSIncludesFreeBSD(t *testing.T) {
+	options := supportedGOOS()
+	if !hasString(options, "freebsd") {
+		t.Fatalf("expected supported GOOS list to include freebsd: %v", options)
+	}
+}
+
 func hasAddress(options []InterfaceOption, address, source string) bool {
 	for _, option := range options {
 		if option.Address != address {
@@ -61,6 +77,16 @@ func hasAddress(options []InterfaceOption, address, source string) bool {
 		}
 
 		if source == "" || option.Source == source {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
 			return true
 		}
 	}

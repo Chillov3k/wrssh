@@ -6,11 +6,13 @@ toolchain go1.24.5
 
 require (
 	github.com/ActiveState/termtest/conpty v0.5.0
+	github.com/Ne0nd0g/go-clr v1.0.3
 	github.com/bodgit/ntlmssp v0.0.0-20240506230425-31973bb52d9b
 	github.com/creack/pty v1.1.24
 	github.com/fatih/color v1.18.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-ping/ping v1.2.0
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/inetaf/tcpproxy v0.0.0-20250222171855-c4b9df066048
 	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.45.0

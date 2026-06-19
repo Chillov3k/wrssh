@@ -175,11 +175,11 @@ func preferredHost(externalAddress string, options []InterfaceOption) string {
 }
 
 func supportedGOOS() []string {
-	return []string{"linux", "windows", "darwin"}
+	return []string{"linux", "windows", "darwin", "freebsd"}
 }
 
 func supportedGOARCH() []string {
-	return []string{"amd64", "arm64", "386"}
+	return []string{"amd64", "arm64", "386", "mips", "mipsle", "mips64", "mips64le"}
 }
 
 func normalizedAdvertisedHost(value string) string {

@@ -684,6 +684,7 @@ export function makeClientRow(host, connection) {
     connectionId: connection?.connectionId || "",
     hostname: hostNameLabel(host, connection),
     ip: connectionIpLabel(connection, host),
+    internalIp: connection?.internalIp || host.internalIp || "",
     remoteAddr: connection?.remoteAddr || host.remoteAddr || "",
     comment: connection?.comment || host.comment || "",
     version: connection?.version || host.version || "",
@@ -703,7 +704,24 @@ function hostNameLabel(host, connection) {
 }
 
 function connectionIpLabel(connection, host) {
-  return connection?.remoteIp || extractRemoteHost(connection?.remoteAddr) || host.ip || extractRemoteHost(host.remoteAddr) || "-";
+  const externalIp = connection?.remoteIp || extractRemoteHost(connection?.remoteAddr) || host.ip || extractRemoteHost(host.remoteAddr) || "";
+  const internalIp = connection?.internalIp || host.internalIp || "";
+  return combinedIpLabel(externalIp, internalIp);
+}
+
+function combinedIpLabel(externalIp, internalIp) {
+  const external = String(externalIp || "").trim();
+  const internal = String(internalIp || "").trim();
+  if (!external && !internal) {
+    return "-";
+  }
+  if (!internal || external === internal) {
+    return external || internal;
+  }
+  if (!external) {
+    return internal;
+  }
+  return `${external} / ${internal}`;
 }
 
 export function extractRemoteHost(value) {
@@ -734,6 +752,7 @@ export function rowMatchesQuery(row, query) {
     row.hostname,
     row.project,
     row.ip,
+    row.internalIp,
     row.remoteAddr,
     row.comment,
     row.hostId,
@@ -868,15 +887,17 @@ export function artifactSizeLabel(value) {
   return Number(value || 0).toFixed(2);
 }
 
-export function renderArtifactLink(label, url) {
+export function renderArtifactLink(label, url, options = {}) {
+  const displayText = options.displayText || url;
+  const copyText = options.copyText || displayText;
   return `
     <div class="artifact-link">
       <strong>${escapeHtml(label)}</strong>
       <div class="artifact-actions">
         <a class="inline-link" href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open</a>
-        <button class="ghost-button" data-copy-artifact="${escapeAttribute(url)}">Copy</button>
+        <button class="ghost-button" data-copy-artifact="${escapeAttribute(copyText)}">Copy</button>
       </div>
-      <code>${escapeHtml(url)}</code>
+      <code>${escapeHtml(displayText)}</code>
     </div>
   `;
 }

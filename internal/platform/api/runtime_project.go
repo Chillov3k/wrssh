@@ -87,6 +87,7 @@ func (s *Server) syncProjectRuntimeHosts(ctx context.Context, project string) (m
 			Hostname:     snapshot.Hostname,
 			RemoteAddr:   snapshot.RemoteAddr,
 			RemoteIP:     snapshot.RemoteIP,
+			InternalIP:   snapshot.InternalIP,
 			Version:      snapshot.Version,
 			Comment:      snapshot.Comment,
 		})

@@ -1,7 +1,10 @@
 package runtimeagent
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -15,6 +18,11 @@ import (
 	"github.com/NHAS/reverse_ssh/internal/platform/rssh"
 	"github.com/NHAS/reverse_ssh/internal/server/users"
 	"github.com/NHAS/reverse_ssh/internal/server/webserver"
+)
+
+const (
+	maxModuleStdinBytes       = int64(8 * 1024 * 1024)
+	maxModuleRequestBodyBytes = int64(12 * 1024 * 1024)
 )
 
 func (s *Server) handleClients(w http.ResponseWriter, _ *http.Request) {
@@ -122,6 +130,106 @@ func (s *Server) handleExecuteConnectionCommand(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleListConnectionModules(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
+	if connectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "connection id is required"})
+		return
+	}
+
+	modules, err := s.service.ListModulesOnConnection(r.Context(), connectionID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": modules})
+}
+
+func (s *Server) handleRunConnectionModule(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(r.PathValue("connectionID"))
+	module := strings.TrimSpace(r.PathValue("module"))
+	if connectionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "connection id is required"})
+		return
+	}
+	if module == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "module is required"})
+		return
+	}
+
+	request := struct {
+		Args             []string `json:"args"`
+		Stdin            string   `json:"stdin"`
+		StdinBase64      string   `json:"stdinBase64"`
+		TimeoutSeconds   int      `json:"timeoutSeconds"`
+		OutputLimitBytes int64    `json:"outputLimitBytes"`
+	}{}
+	r.Body = http.MaxBytesReader(w, r.Body, maxModuleRequestBodyBytes)
+	if err := decodeJSON(r, &request); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "module request body is too large"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
+		return
+	}
+
+	var stdin io.Reader
+	stdinBytes, err := decodeModuleStdin(request.Stdin, request.StdinBase64)
+	if err != nil {
+		writeJSON(w, moduleStdinStatusCode(err), map[string]any{"error": err.Error()})
+		return
+	}
+	if len(stdinBytes) > 0 {
+		stdin = bytes.NewReader(stdinBytes)
+	}
+	result, err := s.service.ExecuteSubsystemOnConnection(r.Context(), connectionID, module, request.Args, stdin, rssh.SubsystemExecutionOptions{
+		Timeout:          time.Duration(request.TimeoutSeconds) * time.Second,
+		OutputLimitBytes: request.OutputLimitBytes,
+	})
+	response := map[string]any{
+		"output":    result.Output,
+		"timedOut":  result.TimedOut,
+		"truncated": result.Truncated,
+	}
+	if err != nil {
+		response["error"] = err.Error()
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func decodeModuleStdin(text, encoded string) ([]byte, error) {
+	encoded = strings.TrimSpace(encoded)
+	if text != "" && encoded != "" {
+		return nil, fmt.Errorf("use either stdin or stdinBase64, not both")
+	}
+
+	var stdin []byte
+	if encoded != "" {
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("invalid stdinBase64")
+		}
+		stdin = decoded
+	} else if text != "" {
+		stdin = []byte(text)
+	}
+	if int64(len(stdin)) > maxModuleStdinBytes {
+		return nil, fmt.Errorf("module stdin exceeds maximum size of %d bytes", maxModuleStdinBytes)
+	}
+	return stdin, nil
+}
+
+func moduleStdinStatusCode(err error) int {
+	if strings.Contains(err.Error(), "exceeds") {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }
 
 func (s *Server) handleListConnectionFilesystem(w http.ResponseWriter, r *http.Request) {

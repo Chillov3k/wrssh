@@ -1,24 +1,47 @@
 package subsystems
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 
-	"github.com/NHAS/reverse_ssh/internal/terminal"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
-type subSftp bool
+type sftpModule struct{}
 
-func (s *subSftp) Execute(_ terminal.ParsedLine, connection ssh.Channel, subsystemReq *ssh.Request) error {
-	server, err := sftp.NewServer(connection)
-	if err != nil {
-		subsystemReq.Reply(false, []byte(err.Error()))
-		return err
+func newSFTPModule() Module {
+	return &sftpModule{}
+}
+
+func (s *sftpModule) Manifest() Manifest {
+	return Manifest{
+		Name:        "sftp",
+		Description: "Serve an SFTP session over the SSH channel.",
+		Usage:       "sftp",
+		Limits: ModuleLimits{
+			TimeoutSeconds: -1,
+			OutputBytes:    -1,
+			StdinBytes:     -1,
+			MaxArgs:        0,
+		},
+	}
+}
+
+func (s *sftpModule) Run(_ context.Context, moduleIO ModuleIO, _ []string) error {
+	options := make([]sftp.ServerOption, 0, 1)
+	if runtime.GOOS != "windows" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			options = append(options, sftp.WithServerWorkingDirectory(home))
+		}
 	}
 
-	subsystemReq.Reply(true, nil)
+	server, err := sftp.NewServer(moduleIO, options...)
+	if err != nil {
+		return err
+	}
 
 	err = server.Serve()
 	if err != io.EOF && err != nil {

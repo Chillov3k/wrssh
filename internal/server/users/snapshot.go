@@ -14,6 +14,7 @@ type ClientSnapshot struct {
 	Hostname             string   `json:"hostname"`
 	RemoteAddr           string   `json:"remoteAddr"`
 	RemoteIP             string   `json:"remoteIp"`
+	InternalIP           string   `json:"internalIp"`
 	Version              string   `json:"version"`
 	Owners               []string `json:"owners"`
 	Comment              string   `json:"comment"`
@@ -114,9 +115,10 @@ func snapshotFromConnLocked(id string, conn *ssh.ServerConn) ClientSnapshot {
 	return ClientSnapshot{
 		ConnectionID:         id,
 		StableID:             id,
-		Hostname:             NormaliseHostname(conn.User()),
+		Hostname:             NormaliseClientHostname(conn.User()),
 		RemoteAddr:           conn.RemoteAddr().String(),
 		RemoteIP:             remoteIP(conn.RemoteAddr().String()),
+		InternalIP:           conn.Permissions.Extensions["internal-ip"],
 		Version:              string(conn.ClientVersion()),
 		Owners:               owners,
 		Comment:              conn.Permissions.Extensions["comment"],

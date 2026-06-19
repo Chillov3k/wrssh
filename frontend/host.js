@@ -44,6 +44,18 @@ const elements = {
   sendCtrlCButton: document.getElementById("sendCtrlCButton"),
   closeTerminalButton: document.getElementById("closeTerminalButton"),
   backToHostsLink: document.getElementById("backToHostsLink"),
+  refreshModulesButton: document.getElementById("refreshModulesButton"),
+  moduleList: document.getElementById("moduleList"),
+  moduleRunForm: document.getElementById("moduleRunForm"),
+  moduleSelect: document.getElementById("moduleSelect"),
+  moduleHelpText: document.getElementById("moduleHelpText"),
+  moduleArgsInput: document.getElementById("moduleArgsInput"),
+  moduleTimeoutInput: document.getElementById("moduleTimeoutInput"),
+  moduleOutputLimitInput: document.getElementById("moduleOutputLimitInput"),
+  moduleStdinInput: document.getElementById("moduleStdinInput"),
+  moduleStdinFileInput: document.getElementById("moduleStdinFileInput"),
+  runModuleButton: document.getElementById("runModuleButton"),
+  moduleOutput: document.getElementById("moduleOutput"),
   hostMetadataPanel: document.getElementById("hostMetadataPanel"),
   hostDisplayNameInput: document.getElementById("hostDisplayNameInput"),
   hostTagsInput: document.getElementById("hostTagsInput"),
@@ -56,6 +68,8 @@ const elements = {
   filesystemTitle: document.getElementById("filesystemTitle"),
   filesystemMeta: document.getElementById("filesystemMeta"),
   filesystemCurrentPath: document.getElementById("filesystemCurrentPath"),
+  filesystemPathForm: document.getElementById("filesystemPathForm"),
+  filesystemPathInput: document.getElementById("filesystemPathInput"),
   refreshFilesystemButton: document.getElementById("refreshFilesystemButton"),
   uploadFilesystemButton: document.getElementById("uploadFilesystemButton"),
   filesystemMessage: document.getElementById("filesystemMessage"),
@@ -70,12 +84,44 @@ const elements = {
 const terminalView = new TerminalView(elements.terminalViewport, elements.terminalOutput);
 const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_MODULE_STDIN_LABEL = "8 MiB";
+const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const MODULE_FORM_HELP = {
+  pscan: {
+    argsPlaceholder: "-h localhost -p 80,443 --json",
+    stdinPlaceholder: "not used by pscan",
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json"
+  },
+  execass: {
+    argsPlaceholder: "--args \"currentluid\" --debug",
+    stdinPlaceholder: "upload or paste a .NET assembly artifact",
+    text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
+  },
+  service: {
+    argsPlaceholder: "--install or --uninstall",
+    stdinPlaceholder: "not used by service",
+    text: "Installs or removes the client OS service. Requires elevated privileges."
+  },
+  setuid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setuid",
+    text: "Changes the Linux client process UID."
+  },
+  setgid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setgid",
+    text: "Changes the Linux client process GID."
+  }
+};
 const filesystemAvailable = Boolean(
   elements.fileSystemOverlay &&
   elements.closeFilesystemButton &&
   elements.filesystemTitle &&
   elements.filesystemMeta &&
   elements.filesystemCurrentPath &&
+  elements.filesystemPathForm &&
+  elements.filesystemPathInput &&
   elements.refreshFilesystemButton &&
   elements.uploadFilesystemButton &&
   elements.filesystemMessage &&
@@ -102,6 +148,13 @@ const pageState = {
     rows: 36,
     resizeTimer: 0
   },
+  modules: {
+    items: [],
+    loading: false,
+    running: false,
+    error: "",
+    loadedConnectionId: ""
+  },
   filesystem: {
     open: false,
     selectedDirectory: "/",
@@ -124,9 +177,21 @@ elements.closeTerminalButton.addEventListener("click", () => {
 });
 elements.sendCtrlCButton.addEventListener("click", () => sendTerminalInput("\u0003"));
 elements.saveHostMetadataButton.addEventListener("click", saveHostMetadata);
+elements.refreshModulesButton?.addEventListener("click", () => loadModules(true));
+elements.moduleRunForm?.addEventListener("submit", runSelectedModule);
+elements.moduleSelect?.addEventListener("change", renderModules);
+elements.moduleList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-module-select]");
+  if (!button || !elements.moduleSelect) {
+    return;
+  }
+  elements.moduleSelect.value = button.dataset.moduleSelect || "";
+  renderModules();
+});
 if (filesystemAvailable) {
   elements.openFilesystemButton?.addEventListener("click", openFilesystem);
   elements.closeFilesystemButton.addEventListener("click", closeFilesystem);
+  elements.filesystemPathForm.addEventListener("submit", navigateFilesystemPath);
   elements.refreshFilesystemButton.addEventListener("click", refreshSelectedFilesystemDirectory);
   elements.uploadFilesystemButton.addEventListener("click", () => triggerFilesystemUpload(pageState.filesystem.selectedDirectory));
   elements.filesystemTree.addEventListener("click", handleFilesystemClick);
@@ -174,6 +239,7 @@ initPage({
     }
 
     renderHost();
+    await loadModules(false);
 
     const connection = currentConnection();
     if (connection) {
@@ -254,6 +320,8 @@ function renderHost() {
       </div>
     </article>
   `).join("");
+
+  renderModules();
 }
 
 function currentConnection() {
@@ -266,6 +334,353 @@ function currentRow(connection = currentConnection()) {
 
 function currentCommands(connection = currentConnection()) {
   return hostCommandTemplates(pageState.host, connection, buildJumpTarget(pageState.systemOptions, pageState.host, pageState.ctx?.user));
+}
+
+async function loadModules(force) {
+  if (!elements.moduleList || !pageState.host) {
+    return;
+  }
+
+  const connection = currentConnection();
+  if (!connection) {
+    pageState.modules.items = [];
+    pageState.modules.error = "";
+    pageState.modules.loadedConnectionId = "";
+    renderModules();
+    return;
+  }
+  if (!force && pageState.modules.loadedConnectionId === connection.connectionId) {
+    renderModules();
+    return;
+  }
+
+  pageState.modules.loading = true;
+  pageState.modules.error = "";
+  renderModules();
+  try {
+    const response = await api(moduleAPIPath("", { connectionId: connection.connectionId }));
+    pageState.modules.items = Array.isArray(response.items) ? response.items : [];
+    pageState.modules.loadedConnectionId = connection.connectionId;
+  } catch (error) {
+    pageState.modules.items = [];
+    pageState.modules.error = error.message;
+    pageState.modules.loadedConnectionId = "";
+  } finally {
+    pageState.modules.loading = false;
+    renderModules();
+  }
+}
+
+function renderModules() {
+  if (!elements.moduleList || !elements.moduleSelect || !elements.runModuleButton) {
+    return;
+  }
+
+  const connection = currentConnection();
+  const row = currentRow(connection);
+  const modules = visibleWebModules(pageState.modules.items).map((module) => moduleForCurrentHost(module, row));
+  const selectedName = elements.moduleSelect.value;
+  const selected = modules.find((module) => module.name === selectedName) || modules.find((module) => !module.disabled) || modules[0] || null;
+  syncModuleFormHelp(selected);
+
+  elements.refreshModulesButton.disabled = !connection || pageState.modules.loading;
+  elements.moduleRunForm?.classList.toggle("hidden", !connection);
+  elements.moduleSelect.disabled = !connection || modules.length === 0 || pageState.modules.running;
+  elements.runModuleButton.disabled = !connection || !selected || selected.disabled || pageState.modules.running;
+
+  if (!connection) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>Host is offline.</p></div>`;
+    elements.moduleSelect.innerHTML = "";
+    return;
+  }
+
+  if (pageState.modules.loading) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>Loading modules...</p></div>`;
+    return;
+  }
+
+  if (pageState.modules.error) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>${escapeHtml(pageState.modules.error)}</p></div>`;
+    elements.moduleSelect.innerHTML = "";
+    return;
+  }
+
+  elements.moduleSelect.innerHTML = modules.map((module) => (
+    `<option value="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>${escapeHtml(module.name || "unnamed")}</option>`
+  )).join("");
+  if (selected) {
+    elements.moduleSelect.value = selected.name;
+  }
+
+  if (!modules.length) {
+    elements.moduleList.innerHTML = `<div class="empty-state module-empty"><p>No runnable web modules reported by this agent.</p></div>`;
+    return;
+  }
+
+  elements.moduleList.innerHTML = modules.map((module) => renderModuleCard(module, selected?.name === module.name)).join("");
+}
+
+function renderModuleCard(module, active) {
+  const tags = [];
+  if (module.dangerous) {
+    tags.push("dangerous");
+  }
+  if (module.disabled) {
+    tags.push("disabled");
+  }
+  (module.buildTags || []).forEach((tag) => tags.push(`tag:${tag}`));
+  (module.platforms || []).forEach((platform) => tags.push(platform));
+
+  const limits = module.limits || {};
+  const limitParts = [];
+  if (limits.timeoutSeconds) {
+    limitParts.push(`${limits.timeoutSeconds}s timeout`);
+  }
+  if (limits.outputBytes) {
+    limitParts.push(`${limits.outputBytes}B output`);
+  }
+  if (limits.stdinBytes) {
+    limitParts.push(`${limits.stdinBytes}B stdin`);
+  }
+
+  return `
+    <article class="module-card ${active ? "active" : ""} ${module.dangerous ? "dangerous" : ""} ${module.disabled ? "disabled" : ""}">
+      <div class="module-card-head">
+        <div>
+          <strong>${escapeHtml(module.name || "unnamed")}</strong>
+          <span>${escapeHtml(module.version ? `v${module.version}` : "")}</span>
+        </div>
+        <button class="ghost-button fs-small-button" type="button" data-module-select="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>Select</button>
+      </div>
+      <p>${escapeHtml(module.description || "No description.")}</p>
+      ${module.disabledReason ? `<small class="error-text">${escapeHtml(module.disabledReason)}</small>` : ""}
+      ${tags.length ? `<div class="tag-list module-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${module.usage ? `<code>${escapeHtml(module.usage)}</code>` : ""}
+      ${limitParts.length ? `<small>${escapeHtml(limitParts.join(" · "))}</small>` : ""}
+    </article>
+  `;
+}
+
+function visibleWebModules(modules) {
+  return (modules || []).filter((module) => !HIDDEN_WEB_MODULES.has(String(module?.name || "").toLowerCase()));
+}
+
+function moduleForCurrentHost(module, row) {
+  const platforms = (module.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+  if (!platforms.length) {
+    return module;
+  }
+
+  const hostOS = parsePlatform(row?.version || "").os;
+  if (!hostOS || platforms.includes(hostOS)) {
+    return module;
+  }
+
+  return {
+    ...module,
+    disabled: true,
+    disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
+  };
+}
+
+function syncModuleFormHelp(module) {
+  const name = String(module?.name || "").toLowerCase();
+  const help = MODULE_FORM_HELP[name] || {};
+  if (elements.moduleHelpText) {
+    elements.moduleHelpText.textContent = module ? (help.text || module.usage || "") : "";
+  }
+  if (elements.moduleArgsInput) {
+    elements.moduleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
+  }
+  if (elements.moduleStdinInput) {
+    elements.moduleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  }
+}
+
+async function runSelectedModule(event) {
+  event.preventDefault();
+  if (!pageState.host || !elements.moduleSelect || !elements.moduleOutput) {
+    return;
+  }
+
+  const connection = currentConnection();
+  const module = elements.moduleSelect.value.trim();
+  if (!connection || !module) {
+    elements.moduleOutput.textContent = "Choose an online connection and module.";
+    return;
+  }
+  if (HIDDEN_WEB_MODULES.has(module.toLowerCase())) {
+    elements.moduleOutput.textContent = "This transport helper module is hidden from the web runner.";
+    return;
+  }
+
+  let args = [];
+  try {
+    args = parseModuleArgs(elements.moduleArgsInput?.value || "");
+  } catch (error) {
+    elements.moduleOutput.textContent = error.message;
+    return;
+  }
+
+  let stdin = elements.moduleStdinInput?.value || "";
+  let stdinBase64 = "";
+  const stdinFile = elements.moduleStdinFileInput?.files?.[0] || null;
+  if (stdinFile && stdin) {
+    elements.moduleOutput.textContent = "Use either stdin text or stdin file, not both.";
+    return;
+  }
+  if (stdinFile) {
+    if (stdinFile.size > moduleStdinLimitBytes(module)) {
+      elements.moduleOutput.textContent = `Stdin file is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
+      return;
+    }
+    try {
+      stdinBase64 = await readFileAsBase64(stdinFile);
+      stdin = "";
+    } catch (error) {
+      elements.moduleOutput.textContent = error.message;
+      return;
+    }
+  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(module)) {
+    elements.moduleOutput.textContent = `Stdin is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
+    return;
+  }
+
+  const payload = {
+    connectionId: connection.connectionId,
+    args,
+    stdin,
+    stdinBase64,
+    timeoutSeconds: numberFieldValue(elements.moduleTimeoutInput, 60),
+    outputLimitBytes: numberFieldValue(elements.moduleOutputLimitInput, 1024 * 1024)
+  };
+
+  pageState.modules.running = true;
+  elements.moduleOutput.textContent = `Running ${module}...`;
+  renderModules();
+  try {
+    const response = await api(moduleAPIPath(`/${encodeURIComponent(module)}/run`), {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const lines = [];
+    if (response.output) {
+      lines.push(response.output);
+    }
+    if (response.timedOut) {
+      lines.push("[timed out]");
+    }
+    if (response.truncated) {
+      lines.push("[output truncated]");
+    }
+    if (response.error) {
+      lines.push(`[error] ${response.error}`);
+    }
+    elements.moduleOutput.textContent = lines.join(lines.length > 1 ? "\n" : "") || "Module completed with no output.";
+  } catch (error) {
+    elements.moduleOutput.textContent = error.message;
+  } finally {
+    pageState.modules.running = false;
+    renderModules();
+  }
+}
+
+function moduleStdinLimitBytes(moduleName) {
+  const module = (pageState.modules.items || []).find((item) => item.name === moduleName);
+  const limit = Number(module?.limits?.stdinBytes || 0);
+  if (limit > 0) {
+    return Math.min(limit, MAX_MODULE_STDIN_BYTES);
+  }
+  return MAX_MODULE_STDIN_BYTES;
+}
+
+function moduleStdinLimitLabel(moduleName) {
+  const limit = moduleStdinLimitBytes(moduleName);
+  if (limit === MAX_MODULE_STDIN_BYTES) {
+    return MAX_MODULE_STDIN_LABEL;
+  }
+  return `${limit} bytes`;
+}
+
+function textByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
+async function readFileAsBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function parseModuleArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const char of String(raw || "")) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== "") {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("Unclosed quote in module args.");
+  }
+  if (current !== "") {
+    args.push(current);
+  }
+  return args;
+}
+
+function numberFieldValue(field, fallback) {
+  const value = Number(field?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function moduleAPIPath(suffix = "", params = {}) {
+  const base = withProjectQuery(`/api/hosts/${encodeURIComponent(pageState.host.stableId)}/modules${suffix}`, pageState.ctx?.project || "");
+  const url = new URL(base, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    url.searchParams.set(key, String(value));
+  });
+  return `${url.pathname}${url.search}`;
 }
 
 function openFilesystem() {
@@ -355,6 +770,42 @@ function selectFilesystemDirectory(remotePath) {
   }
   pageState.filesystem.selectedDirectory = node.path;
   renderFilesystem();
+}
+
+async function navigateFilesystemPath(event) {
+  event.preventDefault();
+
+  const path = normalizeFilesystemPath(elements.filesystemPathInput.value);
+  if (!path) {
+    return;
+  }
+
+  let node = filesystemNode(path);
+  if (!node) {
+    node = ensureFilesystemDirectoryNode(path);
+  }
+
+  pageState.filesystem.selectedDirectory = node.path;
+  node.expanded = true;
+  node.loaded = false;
+  setFilesystemMessage("", "");
+  clearFilesystemPreview();
+  const lineage = filesystemPathLineage(node.path);
+  for (let index = 0; index < lineage.length; index++) {
+    const directory = lineage[index];
+    const directoryNode = ensureFilesystemDirectoryNode(directory);
+    directoryNode.expanded = true;
+    if (!directoryNode.loaded || directoryNode.path === node.path) {
+      await loadFilesystemDirectory(directoryNode.path);
+    } else {
+      renderFilesystem();
+    }
+    const currentNode = filesystemNode(directory);
+    const nextDirectory = lineage[index + 1];
+    if (currentNode && nextDirectory && !currentNode.error) {
+      linkFilesystemChild(currentNode, nextDirectory);
+    }
+  }
 }
 
 async function refreshSelectedFilesystemDirectory() {
@@ -539,10 +990,58 @@ function filesystemNode(remotePath) {
   return pageState.filesystem.nodes.get(path);
 }
 
+function ensureFilesystemDirectoryNode(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  const existing = pageState.filesystem.nodes.get(path);
+  if (existing) {
+    return existing;
+  }
+
+  const node = {
+    path,
+    name: filesystemPathName(path),
+    type: "directory",
+    expanded: true,
+    loaded: false,
+    loading: false,
+    error: "",
+    items: []
+  };
+  pageState.filesystem.nodes.set(path, node);
+
+  const parent = filesystemParentPath(path);
+  if (parent && parent !== path) {
+    const parentNode = ensureFilesystemDirectoryNode(parent);
+    parentNode.expanded = true;
+    linkFilesystemChild(parentNode, path);
+  }
+
+  return node;
+}
+
+function linkFilesystemChild(parentNode, childPath) {
+  const path = normalizeFilesystemPath(childPath);
+  if (parentNode.items.some((item) => normalizeFilesystemPath(item.path) === path)) {
+    return;
+  }
+  const childNode = filesystemNode(path);
+  parentNode.items.push({
+    path,
+    name: childNode?.name || filesystemPathName(path),
+    type: "directory"
+  });
+}
+
 function normalizeFilesystemPath(remotePath) {
   const value = String(remotePath || "").trim().replaceAll("\\", "/");
   if (!value || value === ".") {
     return "/";
+  }
+  if (value === "~" || value === "~/") {
+    return "~";
+  }
+  if (value.startsWith("~/")) {
+    return value;
   }
   if (value.startsWith("/") && isWindowsDrivePath(value.slice(1))) {
     return normalizeWindowsDrivePath(value.slice(1));
@@ -551,6 +1050,49 @@ function normalizeFilesystemPath(remotePath) {
     return normalizeWindowsDrivePath(value);
   }
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemPathName(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "/";
+  }
+  if (isWindowsDrivePath(value) && value.endsWith(":/")) {
+    return value;
+  }
+  const parts = value.split("/").filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
+
+function filesystemParentPath(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "";
+  }
+  if (value === "~") {
+    return "/";
+  }
+  if (value.startsWith("~/")) {
+    const rest = value.slice(2).split("/").filter(Boolean);
+    return rest.length <= 1 ? "~" : `~/${rest.slice(0, -1).join("/")}`;
+  }
+  if (isWindowsDrivePath(value)) {
+    const slash = value.lastIndexOf("/");
+    return slash <= 2 ? "/" : value.slice(0, slash);
+  }
+  const slash = value.lastIndexOf("/");
+  return slash <= 0 ? "/" : value.slice(0, slash);
+}
+
+function filesystemPathLineage(path) {
+  const normalized = normalizeFilesystemPath(path);
+  const lineage = [];
+  let current = normalized;
+  while (current && current !== "/") {
+    lineage.unshift(current);
+    current = filesystemParentPath(current);
+  }
+  return lineage;
 }
 
 function filesystemRootNode(row) {
@@ -613,6 +1155,7 @@ function renderFilesystem() {
   const root = filesystemNode("/");
   const selectedNode = filesystemNode(pageState.filesystem.selectedDirectory || "/");
   elements.filesystemCurrentPath.textContent = filesystemDisplayPath(pageState.filesystem.selectedDirectory || "/");
+  elements.filesystemPathInput.value = normalizeFilesystemPath(pageState.filesystem.selectedDirectory || "/");
   elements.refreshFilesystemButton.disabled = !root;
   elements.uploadFilesystemButton.disabled = !selectedNode || selectedNode.virtual;
   elements.filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;
@@ -869,6 +1412,7 @@ function openTerminal(connectionId, reconnect) {
   closeTerminal();
 
   const size = measureTerminalSize();
+  terminalView.setSize(size.cols, size.rows);
   terminalView.setConnected(false);
   terminalView.reset("");
   terminalView.write(`[connecting to ${connection.connectionId}]\n`);
@@ -1060,6 +1604,7 @@ function sendTerminalResize(size) {
     return;
   }
 
+  terminalView.setSize(size.cols, size.rows);
   pageState.terminal.cols = size.cols;
   pageState.terminal.rows = size.rows;
   pageState.terminal.socket.send(JSON.stringify({

@@ -29,6 +29,17 @@ const selectVisibleHostsButton = document.getElementById("selectVisibleHostsButt
 const clearSelectedHostsButton = document.getElementById("clearSelectedHostsButton");
 const runSelectedHostsButton = document.getElementById("runSelectedHostsButton");
 const bulkExecOutput = document.getElementById("bulkExecOutput");
+const bulkModulePanel = document.getElementById("bulkModulePanel");
+const bulkModuleSelect = document.getElementById("bulkModuleSelect");
+const bulkModuleHelpText = document.getElementById("bulkModuleHelpText");
+const bulkModuleArgsInput = document.getElementById("bulkModuleArgsInput");
+const bulkModuleTimeoutInput = document.getElementById("bulkModuleTimeoutInput");
+const bulkModuleOutputLimitInput = document.getElementById("bulkModuleOutputLimitInput");
+const bulkModuleStdinInput = document.getElementById("bulkModuleStdinInput");
+const bulkModuleStdinFileInput = document.getElementById("bulkModuleStdinFileInput");
+const refreshBulkModulesButton = document.getElementById("refreshBulkModulesButton");
+const runSelectedModuleButton = document.getElementById("runSelectedModuleButton");
+const bulkModuleOutput = document.getElementById("bulkModuleOutput");
 const offlineDeleteOverlay = document.getElementById("offlineDeleteOverlay");
 const offlineDeleteMessage = document.getElementById("offlineDeleteMessage");
 const offlineDeleteError = document.getElementById("offlineDeleteError");
@@ -45,6 +56,8 @@ const closeFilesystemButton = document.getElementById("closeFilesystemButton");
 const filesystemTitle = document.getElementById("filesystemTitle");
 const filesystemMetaText = document.getElementById("filesystemMeta");
 const filesystemCurrentPath = document.getElementById("filesystemCurrentPath");
+const filesystemPathForm = document.getElementById("filesystemPathForm");
+const filesystemPathInput = document.getElementById("filesystemPathInput");
 const refreshFilesystemButton = document.getElementById("refreshFilesystemButton");
 const uploadFilesystemButton = document.getElementById("uploadFilesystemButton");
 const filesystemMessage = document.getElementById("filesystemMessage");
@@ -65,15 +78,56 @@ const OS_FILTERS = [
 
 const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_MODULE_STDIN_LABEL = "8 MiB";
+const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const MODULE_FORM_HELP = {
+  pscan: {
+    argsPlaceholder: "-h localhost -p 80,443 --json",
+    stdinPlaceholder: "not used by pscan",
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json"
+  },
+  execass: {
+    argsPlaceholder: "--args \"currentluid\" --debug",
+    stdinPlaceholder: "upload or paste a .NET assembly artifact",
+    text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
+  },
+  service: {
+    argsPlaceholder: "--install or --uninstall",
+    stdinPlaceholder: "not used by service",
+    text: "Installs or removes the client OS service. Requires elevated privileges."
+  },
+  setuid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setuid",
+    text: "Changes the Linux client process UID."
+  },
+  setgid: {
+    argsPlaceholder: "0",
+    stdinPlaceholder: "not used by setgid",
+    text: "Changes the Linux client process GID."
+  }
+};
 
 const pageState = {
   hosts: [],
   systemOptions: null,
   ctx: null,
   osFilter: "all",
+  sort: {
+    key: "status",
+    direction: "desc"
+  },
   selectedRows: new Set(),
   runningRows: new Set(),
   commandResults: new Map(),
+  bulkModules: {
+    items: [],
+    loading: false,
+    running: false,
+    error: "",
+    loadedRowKey: ""
+  },
   pendingOfflineDelete: null,
   pendingOnlineDelete: null,
   contextRowKey: "",
@@ -105,6 +159,14 @@ clearSelectedHostsButton.addEventListener("click", () => {
   renderHosts();
 });
 runSelectedHostsButton.addEventListener("click", runSelectedHosts);
+bulkModulePanel?.addEventListener("toggle", () => {
+  if (bulkModulePanel.open) {
+    void loadBulkModules(false);
+  }
+});
+refreshBulkModulesButton?.addEventListener("click", () => loadBulkModules(true));
+bulkModuleSelect?.addEventListener("change", syncBulkModuleHelp);
+runSelectedModuleButton?.addEventListener("click", runSelectedModuleOnHosts);
 bulkCommandInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") {
     return;
@@ -128,6 +190,7 @@ onlineDeleteOverlay.addEventListener("click", (event) => {
 });
 confirmOnlineDeleteButton.addEventListener("click", deleteOnlineFromModal);
 closeFilesystemButton.addEventListener("click", closeFilesystem);
+filesystemPathForm.addEventListener("submit", navigateFilesystemPath);
 refreshFilesystemButton.addEventListener("click", refreshSelectedFilesystemDirectory);
 uploadFilesystemButton.addEventListener("click", () => triggerFilesystemUpload(pageState.filesystem.selectedDirectory));
 filesystemTree.addEventListener("click", handleFilesystemClick);
@@ -154,6 +217,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 hostTable.addEventListener("click", async (event) => {
+  const sortButton = event.target.closest("[data-host-sort]");
+  if (sortButton) {
+    setHostSort(sortButton.dataset.hostSort || "");
+    return;
+  }
+
   const selectVisibleToggle = event.target.closest("[data-select-visible-toggle]");
   if (selectVisibleToggle) {
     toggleVisibleSelection(selectVisibleToggle.checked);
@@ -184,6 +253,12 @@ hostTable.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy-command]");
   if (copyButton) {
     await copyFromButton(copyButton, copyButton.dataset.copyCommand, "Copied");
+    return;
+  }
+
+  const copyResultButton = event.target.closest("[data-copy-result]");
+  if (copyResultButton) {
+    await copyExecutionResult(copyResultButton);
     return;
   }
 
@@ -245,7 +320,7 @@ function renderHosts() {
   const counts = countRowsByOS(allRows);
   syncOSFilterButtons(counts);
 
-  const rows = filteredRows(allRows);
+  const rows = sortedRows(filteredRows(allRows));
   syncBulkControls(rows);
 
   if (!rows.length) {
@@ -266,14 +341,14 @@ function renderHosts() {
       <div class="hosts-list">
         <div class="hosts-list-head">
           <span class="client-select-head">
-            <input type="checkbox" class="row-selector" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
+            <input type="checkbox" class="row-selector hosts-select-all" title="Select all visible" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
           </span>
-          <span>OS</span>
-          <span>IP</span>
-          <span>User</span>
-          <span>Host</span>
-          <span>Session time</span>
-          <span>Status</span>
+          ${renderSortHeader("os", "OS")}
+          ${renderSortHeader("ip", "IP")}
+          ${renderSortHeader("user", "User")}
+          ${renderSortHeader("host", "Host")}
+          ${renderSortHeader("sessionTime", "Session time")}
+          ${renderSortHeader("status", "Status")}
         </div>
         <div class="hosts-list-body">
           ${rows.map((row) => renderRow(row)).join("")}
@@ -289,6 +364,116 @@ function filteredRows(existingRows = null) {
   const query = hostSearch.value.trim().toLowerCase();
   const rows = existingRows || getClientRows(pageState.hosts);
   return rows.filter((row) => rowMatchesQuery(row, query) && rowMatchesOS(row, pageState.osFilter));
+}
+
+function sortedRows(rows) {
+  const direction = pageState.sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const result = compareRows(left, right, pageState.sort.key);
+    if (result !== 0) {
+      return result * direction;
+    }
+
+    if (left.connected !== right.connected) {
+      return left.connected ? -1 : 1;
+    }
+
+    return compareDateRows(right.dateAdded, left.dateAdded) || compareStrings(left.hostname, right.hostname);
+  });
+}
+
+function compareRows(left, right, key) {
+  switch (key) {
+  case "os":
+    return compareStrings(parsePlatform(left.version).label, parsePlatform(right.version).label);
+  case "ip":
+    return compareIPLabels(left.ip, right.ip);
+  case "user":
+    return compareStrings(splitHostIdentity(left.hostname).user, splitHostIdentity(right.hostname).user);
+  case "host":
+    return compareStrings(splitHostIdentity(left.hostname).host, splitHostIdentity(right.hostname).host);
+  case "sessionTime":
+    return compareDateRows(left.dateAdded, right.dateAdded);
+  case "status":
+    return Number(left.connected) - Number(right.connected);
+  default:
+    return 0;
+  }
+}
+
+function compareStrings(left, right) {
+  return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareDateRows(left, right) {
+  return dateValue(left) - dateValue(right);
+}
+
+function compareIPLabels(left, right) {
+  const leftParts = parseIPv4(left);
+  const rightParts = parseIPv4(right);
+  if (leftParts && rightParts) {
+    for (let index = 0; index < leftParts.length; index += 1) {
+      if (leftParts[index] !== rightParts[index]) {
+        return leftParts[index] - rightParts[index];
+      }
+    }
+    return 0;
+  }
+
+  return compareStrings(left, right);
+}
+
+function parseIPv4(value) {
+  const primary = String(value || "").split("/")[0].trim();
+  const parts = primary.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+
+  return numbers;
+}
+
+function dateValue(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function setHostSort(key) {
+  if (!key) {
+    return;
+  }
+
+  if (pageState.sort.key === key) {
+    pageState.sort.direction = pageState.sort.direction === "asc" ? "desc" : "asc";
+  } else {
+    pageState.sort.key = key;
+    pageState.sort.direction = key === "sessionTime" || key === "status" ? "desc" : "asc";
+  }
+
+  renderHosts();
+}
+
+function renderSortHeader(key, label) {
+  const active = pageState.sort.key === key;
+  const direction = active ? pageState.sort.direction : "";
+  return `
+    <button class="hosts-sort-button ${active ? "is-active" : ""}" type="button" data-host-sort="${escapeAttribute(key)}" aria-sort="${active ? (direction === "asc" ? "ascending" : "descending") : "none"}">
+      <span>${escapeHtml(label)}</span>
+      <span class="sort-arrows" aria-hidden="true">
+        <span class="sort-arrow-up ${active && direction === "asc" ? "active" : ""}"></span>
+        <span class="sort-arrow-down ${active && direction === "desc" ? "active" : ""}"></span>
+      </span>
+    </button>
+  `;
 }
 
 function countRowsByOS(rows) {
@@ -395,7 +580,8 @@ function renderRow(row) {
   const execution = pageState.commandResults.get(row.key);
   const platform = parsePlatform(row.version);
   const identity = splitHostIdentity(row.hostname);
-  const sessionTime = row.host?.lastConnectionAt || row.lastActivityAt || row.dateAdded;
+  const sessionTime = row.dateAdded;
+  const ipTitle = [row.remoteAddr || row.ip, row.internalIp ? `internal ${row.internalIp}` : ""].filter(Boolean).join(" / ");
 
   return `
     <article class="hosts-list-row ${row.connected ? "is-online" : "is-offline"} ${selected ? "is-selected" : ""}" data-host-row-key="${escapeAttribute(row.key)}" data-open-shell="${escapeAttribute(href)}" title="Right-click for host actions">
@@ -405,7 +591,7 @@ function renderRow(row) {
       <div class="hosts-list-cell hosts-os-cell">
         <span class="os-icon os-${escapeAttribute(platform.os || "unknown")}" title="${escapeAttribute(platform.label)}">${osIconMarkup(platform.os)}</span>
       </div>
-      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(row.remoteAddr || row.ip)}">${escapeHtml(row.ip)}</div>
+      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(ipTitle)}">${escapeHtml(row.ip)}</div>
       <div class="hosts-list-cell compact-value" title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.user)}</div>
       <div class="hosts-list-cell hosts-name-cell">
         <strong title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.host)}</strong>
@@ -418,41 +604,82 @@ function renderRow(row) {
         </span>
       </div>
       ${running ? `<div class="hosts-row-running"><span class="chip">Running command...</span></div>` : ""}
-      ${renderCommandResult(execution)}
+      ${renderCommandResult(execution, row.key)}
     </article>
   `;
 }
 
-function renderCommandResult(execution) {
+function renderCommandResult(execution, rowKey) {
   if (!execution) {
     return "";
   }
 
-  const status = execution.error
-    ? (execution.timedOut ? "Timed out" : "Failed")
-    : "Completed";
-  const statusClass = execution.error ? "offline" : "online";
+  const status = execution.timedOut
+    ? "Timed out"
+    : (execution.error ? "Failed" : "Completed");
+  const statusClass = execution.error || execution.timedOut ? "offline" : "online";
+  const resultLabel = execution.kind === "module" ? "Module result" : "Command result";
 
-  let body = execution.output || "";
-  if (execution.error) {
-    body = body ? `${body}\n\n[error] ${execution.error}` : `[error] ${execution.error}`;
-  }
-  if (!body) {
-    body = "[no output]";
-  }
+  const body = executionOutputText(execution);
 
   return `
     <div class="client-command-result shell-panel">
       <div class="client-command-result-head">
         <div>
-          <p class="eyebrow">Command result</p>
+          <p class="eyebrow">${escapeHtml(resultLabel)}</p>
           <h4>${escapeHtml(execution.command)}</h4>
         </div>
-        <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        <div class="client-command-result-actions">
+          <button class="ghost-button fs-small-button" type="button" data-copy-result="${escapeAttribute(rowKey)}">Copy output</button>
+          <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        </div>
       </div>
       <pre class="output-block small-output">${escapeHtml(body)}</pre>
     </div>
   `;
+}
+
+function executionOutputText(execution) {
+  if (!execution) {
+    return "";
+  }
+
+  const bodyParts = [];
+  if (execution.output) {
+    bodyParts.push(execution.output);
+  }
+  if (execution.timedOut) {
+    bodyParts.push("[timed out]");
+  }
+  if (execution.truncated) {
+    bodyParts.push("[output truncated]");
+  }
+  if (execution.error) {
+    bodyParts.push(`[error] ${execution.error}`);
+  }
+  return bodyParts.join(bodyParts.length > 1 ? "\n\n" : "") || "[no output]";
+}
+
+async function copyExecutionResult(button) {
+  const rowKey = button.dataset.copyResult || "";
+  const execution = pageState.commandResults.get(rowKey);
+  if (!execution) {
+    return;
+  }
+
+  const original = button.textContent;
+  button.disabled = true;
+  try {
+    await copyText(executionOutputText(execution));
+    button.textContent = "Copied";
+  } catch (error) {
+    button.textContent = "Copy failed";
+  } finally {
+    window.setTimeout(() => {
+      button.textContent = original;
+      button.disabled = false;
+    }, 1000);
+  }
 }
 
 function openHostContextMenu(rowKey, x, y) {
@@ -539,7 +766,7 @@ function toggleRowSelection(key, checked) {
 }
 
 function toggleVisibleSelection(checked) {
-  filteredRows().forEach((row) => toggleRowSelection(row.key, checked));
+  sortedRows(filteredRows()).forEach((row) => toggleRowSelection(row.key, checked));
 }
 
 function syncVisibleSelectionToggle(rows) {
@@ -561,6 +788,395 @@ function syncBulkControls(rows) {
   clearSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run selected";
+  syncBulkModuleControls();
+}
+
+function selectedHostRows() {
+  const rowMap = new Map(getClientRows(pageState.hosts).map((row) => [row.key, row]));
+  return [...pageState.selectedRows]
+    .map((key) => rowMap.get(key))
+    .filter(Boolean);
+}
+
+function firstSelectedOnlineRow() {
+  return selectedHostRows().find((row) => row.connected) || null;
+}
+
+function syncBulkModuleControls() {
+  if (!bulkModuleSelect || !runSelectedModuleButton || !refreshBulkModulesButton) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const onlineRows = selectedRows.filter((row) => row.connected);
+  const sourceRow = onlineRows[0] || null;
+  if (bulkModulePanel?.open && sourceRow && sourceRow.key !== pageState.bulkModules.loadedRowKey && !pageState.bulkModules.loading && !pageState.bulkModules.running) {
+    void loadBulkModules(true);
+  }
+  if (!onlineRows.length && pageState.bulkModules.items.length) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    syncBulkModuleHelp();
+  }
+
+  const selectedModule = bulkModuleSelect.value.trim();
+  const selectedManifest = pageState.bulkModules.items.find((module) => module.name === selectedModule);
+
+  refreshBulkModulesButton.disabled = onlineRows.length === 0 || pageState.bulkModules.loading || pageState.bulkModules.running;
+  bulkModuleSelect.disabled = pageState.bulkModules.loading || pageState.bulkModules.running || pageState.bulkModules.items.length === 0;
+  runSelectedModuleButton.disabled = (
+    selectedRows.length === 0 ||
+    !selectedModule ||
+    Boolean(selectedManifest?.disabled) ||
+    pageState.bulkModules.loading ||
+    pageState.bulkModules.running ||
+    pageState.runningRows.size > 0
+  );
+  refreshBulkModulesButton.textContent = pageState.bulkModules.loading ? "Loading..." : "Refresh modules";
+  runSelectedModuleButton.textContent = pageState.bulkModules.running ? "Running..." : "Run module";
+}
+
+async function loadBulkModules(force) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const row = firstSelectedOnlineRow();
+  if (!row) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput("Select at least one online host to load modules.");
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+    return;
+  }
+
+  if (!force && pageState.bulkModules.loadedRowKey === row.key && pageState.bulkModules.items.length) {
+    syncBulkModuleControls();
+    return;
+  }
+
+  pageState.bulkModules.loading = true;
+  pageState.bulkModules.error = "";
+  setBulkModuleOutput(`Loading modules from ${row.hostname || row.stableId}...`);
+  syncBulkModuleControls();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/${encodeURIComponent(row.stableId)}/modules?connectionId=${encodeURIComponent(row.connectionId || "")}`, pageState.ctx?.project || ""));
+    pageState.bulkModules.items = visibleWebModules(response.items || []).map((module) => moduleForRow(module, row));
+    pageState.bulkModules.loadedRowKey = row.key;
+    renderBulkModuleOptions(row);
+  } catch (error) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.loading = false;
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+  }
+}
+
+function renderBulkModuleOptions(sourceRow) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const modules = pageState.bulkModules.items;
+  const previous = bulkModuleSelect.value;
+  bulkModuleSelect.innerHTML = modules.map((module) => (
+    `<option value="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>${escapeHtml(module.name || "unnamed")}</option>`
+  )).join("");
+
+  const selected = modules.find((module) => module.name === previous && !module.disabled) || modules.find((module) => !module.disabled) || modules[0] || null;
+  if (selected) {
+    bulkModuleSelect.value = selected.name;
+  }
+
+  setBulkModuleOutput(modules.length
+    ? `Modules loaded from ${sourceRow.hostname || sourceRow.stableId}.`
+    : "No runnable web modules reported by the selected host.");
+}
+
+function syncBulkModuleHelp() {
+  if (!bulkModuleSelect || !bulkModuleHelpText) {
+    return;
+  }
+
+  const module = pageState.bulkModules.items.find((item) => item.name === bulkModuleSelect.value) || null;
+  const name = String(module?.name || "").toLowerCase();
+  const help = MODULE_FORM_HELP[name] || {};
+  bulkModuleHelpText.textContent = module ? (help.text || module.usage || "") : "";
+
+  if (bulkModuleArgsInput) {
+    bulkModuleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
+  }
+  if (bulkModuleStdinInput) {
+    bulkModuleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  }
+}
+
+function setBulkModuleOutput(message, type = "muted") {
+  if (!bulkModuleOutput) {
+    return;
+  }
+  bulkModuleOutput.textContent = message || "";
+  bulkModuleOutput.classList.toggle("error-text", type === "error");
+  bulkModuleOutput.classList.toggle("muted", type !== "error");
+}
+
+function visibleWebModules(modules) {
+  return (modules || []).filter((module) => !HIDDEN_WEB_MODULES.has(String(module?.name || "").toLowerCase()));
+}
+
+function moduleForRow(module, row) {
+  const platforms = (module?.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+  if (!platforms.length) {
+    return module;
+  }
+
+  const hostOS = parsePlatform(row?.version || "").os;
+  if (!hostOS || platforms.includes(hostOS)) {
+    return module;
+  }
+
+  return {
+    ...module,
+    disabled: true,
+    disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
+  };
+}
+
+async function runSelectedModuleOnHosts() {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const moduleName = bulkModuleSelect.value.trim();
+  if (!selectedRows.length) {
+    setBulkModuleOutput("Select at least one host first.", "error");
+    return;
+  }
+  if (!moduleName) {
+    setBulkModuleOutput("Choose a module to run.", "error");
+    return;
+  }
+  if (HIDDEN_WEB_MODULES.has(moduleName.toLowerCase())) {
+    setBulkModuleOutput("This transport helper module is hidden from the web runner.", "error");
+    return;
+  }
+
+  const manifest = pageState.bulkModules.items.find((module) => module.name === moduleName) || null;
+  if (!manifest) {
+    setBulkModuleOutput("Refresh modules before running this module.", "error");
+    return;
+  }
+  if (manifest.disabled) {
+    setBulkModuleOutput(manifest.disabledReason || "This module is disabled by the selected host.", "error");
+    return;
+  }
+
+  let args = [];
+  try {
+    args = parseModuleArgs(bulkModuleArgsInput?.value || "");
+  } catch (error) {
+    setBulkModuleOutput(error.message, "error");
+    return;
+  }
+
+  let stdin = bulkModuleStdinInput?.value || "";
+  let stdinBase64 = "";
+  const stdinFile = bulkModuleStdinFileInput?.files?.[0] || null;
+  if (stdinFile && stdin) {
+    setBulkModuleOutput("Use either stdin text or stdin file, not both.", "error");
+    return;
+  }
+  if (stdinFile) {
+    if (stdinFile.size > moduleStdinLimitBytes(moduleName)) {
+      setBulkModuleOutput(`Stdin file is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
+      return;
+    }
+    try {
+      stdinBase64 = await readFileAsBase64(stdinFile);
+      stdin = "";
+    } catch (error) {
+      setBulkModuleOutput(error.message, "error");
+      return;
+    }
+  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(moduleName)) {
+    setBulkModuleOutput(`Stdin is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
+    return;
+  }
+
+  const command = moduleCommandLabel(moduleName, args);
+  const targetRows = [];
+  selectedRows.forEach((row) => {
+    const rowManifest = moduleForRow(manifest, row);
+    pageState.commandResults.delete(row.key);
+    if (rowManifest.disabled) {
+      pageState.commandResults.set(row.key, {
+        kind: "module",
+        command,
+        output: "",
+        error: rowManifest.disabledReason || "This module is not available for this host.",
+        timedOut: false,
+        truncated: false
+      });
+      return;
+    }
+    targetRows.push(row);
+  });
+
+  if (!targetRows.length) {
+    setBulkModuleOutput("No selected hosts can run this module.", "error");
+    renderHosts();
+    return;
+  }
+
+  pageState.bulkModules.running = true;
+  targetRows.forEach((row) => pageState.runningRows.add(row.key));
+  setBulkModuleOutput(`Running ${moduleName} on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}...`);
+  renderHosts();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/modules/${encodeURIComponent(moduleName)}/run`, pageState.ctx?.project || ""), {
+      method: "POST",
+      body: JSON.stringify({
+        targets: targetRows.map((row) => ({
+          stableId: row.stableId,
+          connectionId: row.connectionId || ""
+        })),
+        args,
+        stdin,
+        stdinBase64,
+        timeoutSeconds: numberFieldValue(bulkModuleTimeoutInput, 60),
+        outputLimitBytes: numberFieldValue(bulkModuleOutputLimitInput, 1024 * 1024)
+      })
+    });
+
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    for (const item of response.items || []) {
+      const key = item.key || `${item.stableId}:${item.connectionId || "offline"}`;
+      pageState.commandResults.set(key, {
+        kind: "module",
+        command,
+        output: item.output || "",
+        error: item.error || "",
+        timedOut: Boolean(item.timedOut),
+        truncated: Boolean(item.truncated)
+      });
+    }
+    setBulkModuleOutput(`Module ${moduleName} completed on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.running = false;
+    renderHosts();
+  }
+}
+
+function moduleCommandLabel(moduleName, args) {
+  const suffix = args.length ? ` ${args.map((arg) => quoteModuleArg(arg)).join(" ")}` : "";
+  return `${moduleName}${suffix}`;
+}
+
+function quoteModuleArg(value) {
+  const arg = String(value || "");
+  if (!arg || /\s/.test(arg)) {
+    return `"${arg.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  }
+  return arg;
+}
+
+function moduleStdinLimitBytes(moduleName) {
+  const module = (pageState.bulkModules.items || []).find((item) => item.name === moduleName);
+  const limit = Number(module?.limits?.stdinBytes || 0);
+  if (limit > 0) {
+    return Math.min(limit, MAX_MODULE_STDIN_BYTES);
+  }
+  return MAX_MODULE_STDIN_BYTES;
+}
+
+function moduleStdinLimitLabel(moduleName) {
+  const limit = moduleStdinLimitBytes(moduleName);
+  if (limit === MAX_MODULE_STDIN_BYTES) {
+    return MAX_MODULE_STDIN_LABEL;
+  }
+  return `${limit} bytes`;
+}
+
+function textByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
+async function readFileAsBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function parseModuleArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const char of String(raw || "")) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== "") {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("Unclosed quote in module args.");
+  }
+  if (current !== "") {
+    args.push(current);
+  }
+  return args;
+}
+
+function numberFieldValue(field, fallback) {
+  const value = Number(field?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function pruneRowState(rows) {
@@ -718,7 +1334,11 @@ async function deleteOfflineFromModal(mode) {
   actionButton.textContent = mode === "all" ? "Deleting offline clients..." : "Deleting client...";
 
   try {
-    await deleteHostRecords(stableIds);
+    if (mode === "all") {
+      await deleteAllOfflineHostRecords();
+    } else {
+      await deleteHostRecords(stableIds);
+    }
     closeOfflineDeleteModal(true);
     await refreshHostsAfterMutation();
   } catch (error) {
@@ -740,6 +1360,12 @@ async function deleteHostRecords(stableIds) {
       method: "DELETE"
     });
   }
+}
+
+async function deleteAllOfflineHostRecords() {
+  return api(withProjectQuery("/api/hosts/offline", pageState.ctx?.project || ""), {
+    method: "DELETE"
+  });
 }
 
 async function refreshHostsAfterMutation() {
@@ -900,6 +1526,42 @@ function selectFilesystemDirectory(remotePath) {
   }
   pageState.filesystem.selectedDirectory = node.path;
   renderFilesystem();
+}
+
+async function navigateFilesystemPath(event) {
+  event.preventDefault();
+
+  const path = normalizeFilesystemPath(filesystemPathInput.value);
+  if (!path) {
+    return;
+  }
+
+  let node = filesystemNode(path);
+  if (!node) {
+    node = ensureFilesystemDirectoryNode(path);
+  }
+
+  pageState.filesystem.selectedDirectory = node.path;
+  node.expanded = true;
+  node.loaded = false;
+  setFilesystemMessage("", "");
+  clearFilesystemPreview();
+  const lineage = filesystemPathLineage(node.path);
+  for (let index = 0; index < lineage.length; index++) {
+    const directory = lineage[index];
+    const directoryNode = ensureFilesystemDirectoryNode(directory);
+    directoryNode.expanded = true;
+    if (!directoryNode.loaded || directoryNode.path === node.path) {
+      await loadFilesystemDirectory(directoryNode.path);
+    } else {
+      renderFilesystem();
+    }
+    const currentNode = filesystemNode(directory);
+    const nextDirectory = lineage[index + 1];
+    if (currentNode && nextDirectory && !currentNode.error) {
+      linkFilesystemChild(currentNode, nextDirectory);
+    }
+  }
 }
 
 async function refreshSelectedFilesystemDirectory() {
@@ -1085,10 +1747,58 @@ function filesystemNode(remotePath) {
   return pageState.filesystem.nodes.get(path);
 }
 
+function ensureFilesystemDirectoryNode(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  const existing = pageState.filesystem.nodes.get(path);
+  if (existing) {
+    return existing;
+  }
+
+  const node = {
+    path,
+    name: filesystemPathName(path),
+    type: "directory",
+    expanded: true,
+    loaded: false,
+    loading: false,
+    error: "",
+    items: []
+  };
+  pageState.filesystem.nodes.set(path, node);
+
+  const parent = filesystemParentPath(path);
+  if (parent && parent !== path) {
+    const parentNode = ensureFilesystemDirectoryNode(parent);
+    parentNode.expanded = true;
+    linkFilesystemChild(parentNode, path);
+  }
+
+  return node;
+}
+
+function linkFilesystemChild(parentNode, childPath) {
+  const path = normalizeFilesystemPath(childPath);
+  if (parentNode.items.some((item) => normalizeFilesystemPath(item.path) === path)) {
+    return;
+  }
+  const childNode = filesystemNode(path);
+  parentNode.items.push({
+    path,
+    name: childNode?.name || filesystemPathName(path),
+    type: "directory"
+  });
+}
+
 function normalizeFilesystemPath(remotePath) {
   const value = String(remotePath || "").trim().replaceAll("\\", "/");
   if (!value || value === ".") {
     return "/";
+  }
+  if (value === "~" || value === "~/") {
+    return "~";
+  }
+  if (value.startsWith("~/")) {
+    return value;
   }
   if (value.startsWith("/") && isWindowsDrivePath(value.slice(1))) {
     return normalizeWindowsDrivePath(value.slice(1));
@@ -1097,6 +1807,49 @@ function normalizeFilesystemPath(remotePath) {
     return normalizeWindowsDrivePath(value);
   }
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemPathName(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "/";
+  }
+  if (isWindowsDrivePath(value) && value.endsWith(":/")) {
+    return value;
+  }
+  const parts = value.split("/").filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
+
+function filesystemParentPath(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "";
+  }
+  if (value === "~") {
+    return "/";
+  }
+  if (value.startsWith("~/")) {
+    const rest = value.slice(2).split("/").filter(Boolean);
+    return rest.length <= 1 ? "~" : `~/${rest.slice(0, -1).join("/")}`;
+  }
+  if (isWindowsDrivePath(value)) {
+    const slash = value.lastIndexOf("/");
+    return slash <= 2 ? "/" : value.slice(0, slash);
+  }
+  const slash = value.lastIndexOf("/");
+  return slash <= 0 ? "/" : value.slice(0, slash);
+}
+
+function filesystemPathLineage(path) {
+  const normalized = normalizeFilesystemPath(path);
+  const lineage = [];
+  let current = normalized;
+  while (current && current !== "/") {
+    lineage.unshift(current);
+    current = filesystemParentPath(current);
+  }
+  return lineage;
 }
 
 function filesystemRootNode(row) {
@@ -1160,6 +1913,7 @@ function renderFilesystem() {
   const root = filesystemNode("/");
   const selectedNode = filesystemNode(pageState.filesystem.selectedDirectory || "/");
   filesystemCurrentPath.textContent = filesystemDisplayPath(pageState.filesystem.selectedDirectory || "/");
+  filesystemPathInput.value = normalizeFilesystemPath(pageState.filesystem.selectedDirectory || "/");
   refreshFilesystemButton.disabled = !root;
   uploadFilesystemButton.disabled = !selectedNode || selectedNode.virtual;
   filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;

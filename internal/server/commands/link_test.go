@@ -32,4 +32,16 @@ func TestBuildOptionHelpUsesOriginalLinkDescriptions(t *testing.T) {
 	if help["no-history-save"] != "Detach startup and reduce shell history persistence for commands run through this agent" {
 		t.Fatalf("unexpected no-history-save help: %q", help["no-history-save"])
 	}
+
+	if help["busybox-fallback"] != "Embed a Linux BusyBox fallback for distroless targets where shell or common command executables are missing" {
+		t.Fatalf("unexpected busybox-fallback help: %q", help["busybox-fallback"])
+	}
+
+	if help["pscan"] != "Compile the optional TCP connect scanner module into the client" {
+		t.Fatalf("unexpected pscan help: %q", help["pscan"])
+	}
+
+	if help["execass"] != "Compile the optional Windows-only .NET execute-assembly module into the client" {
+		t.Fatalf("unexpected execass help: %q", help["execass"])
+	}
 }

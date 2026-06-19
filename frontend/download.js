@@ -210,12 +210,10 @@ function renderArtifact() {
   elements.downloadBinaryLink.href = artifact.downloadUrl;
   elements.artifactDownloadUrl.textContent = artifact.downloadUrl || "-";
 
-  elements.artifactLinks.innerHTML = [
-    ["Binary URL", artifact.downloadUrl],
-    ["Bash", artifact.templateShellUrl],
-    ["Python", artifact.templatePythonUrl],
-    ["PowerShell", artifact.templatePs1Url]
-  ].filter(([, url]) => Boolean(url)).map(([label, url]) => renderArtifactLink(label, url)).join("");
+  elements.artifactLinks.innerHTML = artifactDownloadLinks(artifact).map(([label, url, command]) => renderArtifactLink(label, url, command ? {
+    displayText: command,
+    copyText: command
+  } : {})).join("");
 }
 
 function goarchLabel(artifact) {
@@ -228,4 +226,28 @@ function goarchLabel(artifact) {
   }
 
   return artifact.goarch;
+}
+
+function powerShellInlineCommand(url) {
+  const value = String(url || "").trim();
+  return value ? `iwr ${value} -UseBasicParsing | iex` : "";
+}
+
+function artifactDownloadLinks(artifact) {
+  const goos = String(artifact?.goos || "").toLowerCase();
+  const links = [
+    ["Binary URL", artifact.downloadUrl]
+  ];
+
+  if (goos !== "windows") {
+    links.push(["Bash", artifact.templateShellUrl]);
+  }
+
+  links.push(["Python", artifact.templatePythonUrl]);
+
+  if (goos === "windows") {
+    links.push(["PowerShell", artifact.templatePs1Url, powerShellInlineCommand(artifact.templatePs1Url)]);
+  }
+
+  return links.filter(([, url]) => Boolean(url));
 }

