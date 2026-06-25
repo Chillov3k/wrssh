@@ -21,14 +21,14 @@ func New() *Module {
 func (m *Module) Manifest() subsystems.Manifest {
 	return subsystems.Manifest{
 		Name:        "pscan",
-		Description: "TCP connect scanner with HTTP/HTTPS metadata probing on every open port.",
+		Description: "TCP/UDP scanner with HTTP/HTTPS metadata probing on TCP open ports.",
 		Version:     "1",
-		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [-t workers] [-time timeout] [--json]",
+		Usage:       "pscan -h <host,ip,cidr,...> [-p <port,range,all>] [--udp|--tcp --udp] [-t workers] [-time timeout] [--max-duration duration] [--json]",
 		BuildTags:   []string{"pscan"},
 		Limits: subsystems.ModuleLimits{
-			TimeoutSeconds: int(engine.MaxScanDuration.Seconds()),
+			TimeoutSeconds: -1,
 			OutputBytes:    1024 * 1024,
-			MaxArgs:        16,
+			MaxArgs:        20,
 		},
 	}
 }
@@ -53,7 +53,15 @@ func (m *Module) Run(ctx context.Context, io subsystems.ModuleIO, args []string)
 }
 
 func formatOpenResult(result engine.Result) string {
-	parts := []string{fmt.Sprintf("%s:%d open", result.IP, result.Port)}
+	endpoint := fmt.Sprintf("%s:%d", result.IP, result.Port)
+	if result.Protocol == engine.ProtocolUDP {
+		endpoint = fmt.Sprintf("%s:%d/udp", result.IP, result.Port)
+	}
+	state := result.State
+	if state == "" {
+		state = engine.StateOpen
+	}
+	parts := []string{endpoint, state}
 	if result.Web != nil {
 		parts = append(parts, result.Web.Scheme)
 		if result.Web.StatusCode > 0 {

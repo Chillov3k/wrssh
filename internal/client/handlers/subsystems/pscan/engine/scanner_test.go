@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,6 +52,54 @@ func TestScanFindsLocalListener(t *testing.T) {
 	if !results[0].Open {
 		t.Fatalf("expected open result, got %+v", results[0])
 	}
+	if results[0].Protocol != ProtocolTCP || results[0].State != StateOpen {
+		t.Fatalf("result protocol/state = %s/%s, want tcp/open", results[0].Protocol, results[0].State)
+	}
+}
+
+func TestScanFindsLocalUDPListener(t *testing.T) {
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("ListenPacket returned error: %v", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		buffer := make([]byte, 256)
+		for {
+			n, addr, err := conn.ReadFrom(buffer)
+			if err != nil {
+				return
+			}
+			if n > 0 {
+				_, _ = conn.WriteTo([]byte("ok"), addr)
+			}
+		}
+	}()
+
+	port := conn.LocalAddr().(*net.UDPAddr).Port
+	cfg := Config{
+		Hosts:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+		Ports:       []int{port},
+		Protocols:   []Protocol{ProtocolUDP},
+		Timeout:     time.Second,
+		Workers:     1,
+		MaxDuration: time.Second,
+	}
+
+	var results []Result
+	if err := Scan(context.Background(), cfg, func(result Result) error {
+		results = append(results, result)
+		return nil
+	}); err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(results))
+	}
+	if !results[0].Open || results[0].Protocol != ProtocolUDP || results[0].State != StateOpen {
+		t.Fatalf("expected udp/open result, got %+v", results[0])
+	}
 }
 
 func TestScanCancellation(t *testing.T) {
@@ -66,6 +115,23 @@ func TestScanCancellation(t *testing.T) {
 	err := Scan(ctx, cfg, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Scan error = %v, want context.Canceled", err)
+	}
+}
+
+func TestScanMaxDuration(t *testing.T) {
+	cfg := Config{
+		Hosts:       []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+		Ports:       []int{1},
+		Timeout:     100 * time.Millisecond,
+		Workers:     1,
+		MaxDuration: time.Millisecond,
+	}
+	err := Scan(context.Background(), cfg, func(Result) error {
+		time.Sleep(5 * time.Millisecond)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "scan exceeded --max-duration") {
+		t.Fatalf("Scan error = %v, want max-duration error", err)
 	}
 }
 

@@ -178,4 +178,30 @@ ssh root@201.51.4.33 'cd /root/wrssh && docker compose up -d --build && docker c
 ssh root@201.51.4.33 'set -e; curl -ksS --max-time 15 https://127.0.0.1/glwszwvwawy59ist/builds.js | grep -E "FRONTEND_GOOS_FALLBACKS|freebsd|FRONTEND_GOARCH_FALLBACKS"; curl -k -I --max-time 15 https://127.0.0.1/glwszwvwawy59ist/builds'
 ssh root@201.51.4.33 'set -e; cd /root/wrssh; set -a; . ./.env; set +a; cookie=$(mktemp); trap "rm -f $cookie" EXIT; base=https://127.0.0.1/glwszwvwawy59ist; curl -ksSf -c "$cookie" -H "Content-Type: application/json" -d "{\"username\":\"$WEB_USER\",\"password\":\"$WEB_ADMIN_PASSWORD\"}" "$base/api/auth/login" >/dev/null; curl -ksSf -b "$cookie" "$base/api/system/options" | python3 -c "import json,sys; data=json.load(sys.stdin); print(\"goos=\" + \",\".join(data[\"goos\"])); print(\"goarch=\" + \",\".join(data[\"goarch\"]))"'
 ssh root@201.51.4.33 'set -e; cd /root/wrssh; set -a; . ./.env; set +a; cookie=$(mktemp); trap "rm -f $cookie" EXIT; base=https://127.0.0.1/glwszwvwawy59ist; curl -ksSf -c "$cookie" -H "Content-Type: application/json" -d "{\"username\":\"$WEB_USER\",\"password\":\"$WEB_ADMIN_PASSWORD\"}" "$base/api/auth/login" >/dev/null; name=codex-freebsd-20260617; project=railway; response=$(curl -ksSf -b "$cookie" -H "Content-Type: application/json" -d "{\"name\":\"$name\",\"project\":\"$project\",\"goos\":\"freebsd\",\"goarch\":\"amd64\",\"logLevel\":\"INFO\"}" "$base/api/artifacts?project=$project"); printf "%s" "$response" | python3 -c "import json,sys; data=json.load(sys.stdin); print(\"created=\" + data.get(\"downloadUrl\", \"\")); print(\"callback=\" + data.get(\"callbackAddress\", \"\")); print(\"project=\" + data.get(\"project\", \"\"))"; delete_response=$(curl -ksSf -X DELETE -b "$cookie" "$base/api/artifacts/$name?project=$project"); printf "%s" "$delete_response" | python3 -c "import json,sys; data=json.load(sys.stdin); print(\"deleted=\" + str(data.get(\"deleted\", False)).lower())"'
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 -s list --json
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 -s list
+GOCACHE=/private/tmp/wrssh-go-build go test ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan ./internal/client/handlers/subsystems/pscan/engine
+GOCACHE=/private/tmp/wrssh-go-build go test ./...
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./...
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p 2303 s4ar@141.98.190.5 'link -r 0d038aea7a507f4bcdd27e2d9f17bf55'
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 uname -s
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 uname -m
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 id
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p 2303 s4ar@141.98.190.5 'link --pscan --goos linux --goarch amd64 --name codex-pscan-linux-amd64-20260620 --s 141.98.190.5:2303'
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2303 5b742390c5088f1876b2ca85c509a5d0f0770831 'sh -c "command -v curl || command -v wget || true"'
+ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -J s4ar@141.98.190.5:2304 8050ca03bbc7faecb28c8761271b239dd13990db -s list --json
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./internal/client/handlers/subsystems/pscan/engine -count=1 -v
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan
+GOCACHE=/private/tmp/wrssh-go-build go test ./...
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./...
+GOCACHE=/private/tmp/wrssh-go-build go test -tags 'pscan execass' ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan ./internal/client/handlers/subsystems/execass
+ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new root@141.98.190.5 'hostname; test -d /root/wrssh && echo wrssh_dir_ok || echo no_wrssh_dir'
+ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new s4ar@141.98.190.5 'hostname; pwd; test -d ~/wrssh && echo home_wrssh_dir_ok || true'
+node --check frontend/host.js && node --check frontend/hosts.js
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./internal/client/handlers/subsystems/pscan/engine -count=1 -v
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan
+GOCACHE=/private/tmp/wrssh-go-build go test ./...
+GOCACHE=/private/tmp/wrssh-go-build go test -tags pscan ./...
+GOCACHE=/private/tmp/wrssh-go-build go test -tags 'pscan execass' ./cmd/client ./internal/client/handlers/subsystems ./internal/client/handlers/subsystems/pscan ./internal/client/handlers/subsystems/execass
 ```

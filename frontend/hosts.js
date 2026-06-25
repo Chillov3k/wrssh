@@ -83,9 +83,9 @@ const MAX_MODULE_STDIN_LABEL = "8 MiB";
 const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
 const MODULE_FORM_HELP = {
   pscan: {
-    argsPlaceholder: "-h localhost -p 80,443 --json",
+    argsPlaceholder: "-h localhost -p 80,443 --json or -h host -p 53,161 --udp",
     stdinPlaceholder: "not used by pscan",
-    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json"
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json; UDP: pscan -h 10.0.0.5 -p 53,161 --udp --json"
   },
   execass: {
     argsPlaceholder: "--args \"currentluid\" --debug",

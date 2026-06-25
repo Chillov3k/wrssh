@@ -19,7 +19,7 @@ const (
 	MaxPorts        = 65535
 	MaxWorkers      = 1024
 	MaxRate         = 10000
-	MaxScanDuration = 5 * time.Minute
+	MaxScanDuration = 24 * time.Hour
 
 	DefaultTimeout = 750 * time.Millisecond
 	DefaultWorkers = 600
@@ -29,6 +29,7 @@ const (
 type Config struct {
 	Hosts       []netip.Addr
 	Ports       []int
+	Protocols   []Protocol
 	Timeout     time.Duration
 	Workers     int
 	Rate        int
@@ -40,15 +41,19 @@ func ParseArgs(args []string) (Config, error) {
 	var (
 		hostsRaw    string
 		portsRaw    string
+		protocolRaw string
 		timeoutRaw  string
+		durationRaw string
 		excludeRaw  string
+		tcpScan     bool
+		udpScan     bool
 		timeSeconds int
+		maxTimeSecs int
 	)
 
 	cfg := Config{
-		Timeout:     DefaultTimeout,
-		Workers:     DefaultWorkers,
-		MaxDuration: MaxScanDuration,
+		Timeout: DefaultTimeout,
+		Workers: DefaultWorkers,
 	}
 
 	fs := flag.NewFlagSet("pscan", flag.ContinueOnError)
@@ -57,8 +62,16 @@ func ParseArgs(args []string) (Config, error) {
 	fs.StringVar(&hostsRaw, "ips", "", "comma-separated hosts, IPs or CIDRs")
 	fs.StringVar(&portsRaw, "p", "", "comma-separated TCP ports, ranges or all")
 	fs.StringVar(&portsRaw, "ports", "", "comma-separated TCP ports, ranges or all")
+	fs.StringVar(&protocolRaw, "proto", "", "protocols: tcp, udp, or both")
+	fs.StringVar(&protocolRaw, "protocol", "", "protocols: tcp, udp, or both")
+	fs.BoolVar(&tcpScan, "tcp", false, "scan TCP ports")
+	fs.BoolVar(&udpScan, "udp", false, "scan UDP ports")
+	fs.BoolVar(&udpScan, "u", false, "scan UDP ports")
 	fs.StringVar(&timeoutRaw, "timeout", DefaultTimeout.String(), "TCP connect timeout")
 	fs.IntVar(&timeSeconds, "time", 0, "TCP connect timeout in seconds")
+	fs.StringVar(&durationRaw, "max-duration", "", "optional whole-scan deadline, e.g. 30m or 2h; 0 disables")
+	fs.StringVar(&durationRaw, "duration", "", "optional whole-scan deadline, e.g. 30m or 2h; 0 disables")
+	fs.IntVar(&maxTimeSecs, "max-time", 0, "optional whole-scan deadline in seconds")
 	fs.IntVar(&cfg.Workers, "workers", DefaultWorkers, "concurrent workers")
 	fs.IntVar(&cfg.Workers, "t", DefaultWorkers, "concurrent workers")
 	fs.IntVar(&cfg.Rate, "rate", 0, "maximum connection attempts per second")
@@ -92,6 +105,31 @@ func ParseArgs(args []string) (Config, error) {
 	}
 	if timeSeconds > 0 {
 		cfg.Timeout = time.Duration(timeSeconds) * time.Second
+	}
+
+	if strings.TrimSpace(durationRaw) != "" {
+		duration, err := parseDurationValue(durationRaw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid --max-duration: %w", err)
+		}
+		cfg.MaxDuration = duration
+	}
+	if maxTimeSecs < 0 {
+		return Config{}, fmt.Errorf("--max-time must be positive")
+	}
+	if maxTimeSecs > 0 {
+		cfg.MaxDuration = time.Duration(maxTimeSecs) * time.Second
+	}
+	if cfg.MaxDuration < 0 {
+		return Config{}, fmt.Errorf("--max-duration cannot be negative")
+	}
+	if cfg.MaxDuration > MaxScanDuration {
+		return Config{}, fmt.Errorf("--max-duration exceeds maximum of %s", MaxScanDuration)
+	}
+
+	cfg.Protocols, err = parseProtocols(protocolRaw, tcpScan, udpScan)
+	if err != nil {
+		return Config{}, err
 	}
 
 	if cfg.Workers <= 0 {
@@ -134,6 +172,56 @@ func ParseArgs(args []string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseProtocols(raw string, tcpScan, udpScan bool) ([]Protocol, error) {
+	seen := map[Protocol]struct{}{}
+	appendProtocol := func(protocol Protocol) {
+		seen[protocol] = struct{}{}
+	}
+
+	for _, item := range splitCSV(raw) {
+		switch strings.ToLower(item) {
+		case "tcp":
+			appendProtocol(ProtocolTCP)
+		case "udp":
+			appendProtocol(ProtocolUDP)
+		case "both", "all":
+			appendProtocol(ProtocolTCP)
+			appendProtocol(ProtocolUDP)
+		default:
+			return nil, fmt.Errorf("unsupported protocol %q", item)
+		}
+	}
+
+	if tcpScan {
+		appendProtocol(ProtocolTCP)
+	}
+	if udpScan {
+		appendProtocol(ProtocolUDP)
+	}
+	if len(seen) == 0 {
+		appendProtocol(ProtocolTCP)
+	}
+
+	result := make([]Protocol, 0, len(seen))
+	for _, protocol := range []Protocol{ProtocolTCP, ProtocolUDP} {
+		if _, ok := seen[protocol]; ok {
+			result = append(result, protocol)
+		}
+	}
+	return result, nil
+}
+
+func parseDurationValue(raw string) (time.Duration, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return time.Duration(seconds) * time.Second, nil
+	}
+	return time.ParseDuration(value)
 }
 
 type exclusions struct {
