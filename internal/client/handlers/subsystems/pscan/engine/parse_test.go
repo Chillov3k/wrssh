@@ -78,6 +78,72 @@ func TestParseArgsAcceptsFscanAliasesAndAllPorts(t *testing.T) {
 	if cfg.Timeout.String() != "2s" {
 		t.Fatalf("timeout = %s, want 2s", cfg.Timeout)
 	}
+	if !sameProtocols(cfg.Protocols, []Protocol{ProtocolTCP}) {
+		t.Fatalf("protocols = %v, want tcp", cfg.Protocols)
+	}
+	if cfg.MaxDuration != 0 {
+		t.Fatalf("max duration = %s, want disabled by default", cfg.MaxDuration)
+	}
+}
+
+func TestParseArgsAcceptsUDPProtocols(t *testing.T) {
+	cfg, err := ParseArgs([]string{
+		"-h", "127.0.0.1",
+		"--udp",
+	})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if !sameProtocols(cfg.Protocols, []Protocol{ProtocolUDP}) {
+		t.Fatalf("protocols = %v, want udp", cfg.Protocols)
+	}
+
+	cfg, err = ParseArgs([]string{
+		"-h", "127.0.0.1",
+		"--tcp",
+		"--udp",
+	})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if !sameProtocols(cfg.Protocols, []Protocol{ProtocolTCP, ProtocolUDP}) {
+		t.Fatalf("protocols = %v, want tcp+udp", cfg.Protocols)
+	}
+
+	cfg, err = ParseArgs([]string{
+		"-h", "127.0.0.1",
+		"--proto", "both",
+	})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if !sameProtocols(cfg.Protocols, []Protocol{ProtocolTCP, ProtocolUDP}) {
+		t.Fatalf("protocols = %v, want tcp+udp", cfg.Protocols)
+	}
+}
+
+func TestParseArgsAcceptsWholeScanDeadline(t *testing.T) {
+	cfg, err := ParseArgs([]string{
+		"-h", "127.0.0.1",
+		"--max-duration", "2h",
+	})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if cfg.MaxDuration.String() != "2h0m0s" {
+		t.Fatalf("max duration = %s, want 2h", cfg.MaxDuration)
+	}
+
+	cfg, err = ParseArgs([]string{
+		"-h", "127.0.0.1",
+		"--max-time", "90",
+	})
+	if err != nil {
+		t.Fatalf("ParseArgs returned error: %v", err)
+	}
+	if cfg.MaxDuration.String() != "1m30s" {
+		t.Fatalf("max duration = %s, want 90s", cfg.MaxDuration)
+	}
 }
 
 func TestParseArgsEnforcesLimits(t *testing.T) {
@@ -103,6 +169,18 @@ func TestParseArgsAllows1024Hosts(t *testing.T) {
 }
 
 func sameInts(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameProtocols(left, right []Protocol) bool {
 	if len(left) != len(right) {
 		return false
 	}
