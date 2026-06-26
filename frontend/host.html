@@ -154,11 +154,7 @@
                   <span>Output Limit Bytes</span>
                   <input id="moduleOutputLimitInput" name="outputLimitBytes" type="number" min="1024" max="4194304" value="1048576">
                 </label>
-                <label class="field-stack field-wide">
-                  <span>Stdin</span>
-                  <textarea id="moduleStdinInput" name="stdin" rows="4" placeholder="optional stdin"></textarea>
-                </label>
-                <label class="field-stack field-wide">
+                <label id="moduleStdinFileField" class="field-stack field-wide hidden">
                   <span>Stdin file</span>
                   <input id="moduleStdinFileInput" name="stdinFile" type="file">
                 </label>

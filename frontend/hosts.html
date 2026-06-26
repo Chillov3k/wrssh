@@ -87,7 +87,6 @@
             <details id="bulkModulePanel" class="bulk-module-panel">
               <summary>
                 <span>Run module on selected hosts</span>
-                <small>Load modules from the first selected online host</small>
               </summary>
               <div class="bulk-module-content">
                 <div class="bulk-module-row">
@@ -110,11 +109,7 @@
                 </div>
                 <small id="bulkModuleHelpText" class="field-help muted bulk-module-help"></small>
                 <div class="bulk-module-row bulk-module-stdin-row">
-                  <label class="field-stack">
-                    <span>Stdin text</span>
-                    <textarea id="bulkModuleStdinInput" class="search-input" rows="3" placeholder="optional stdin"></textarea>
-                  </label>
-                  <label class="field-stack">
+                  <label id="bulkModuleStdinFileField" class="field-stack hidden">
                     <span>Stdin file</span>
                     <input id="bulkModuleStdinFileInput" class="search-input" type="file">
                   </label>

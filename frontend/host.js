@@ -52,7 +52,7 @@ const elements = {
   moduleArgsInput: document.getElementById("moduleArgsInput"),
   moduleTimeoutInput: document.getElementById("moduleTimeoutInput"),
   moduleOutputLimitInput: document.getElementById("moduleOutputLimitInput"),
-  moduleStdinInput: document.getElementById("moduleStdinInput"),
+  moduleStdinFileField: document.getElementById("moduleStdinFileField"),
   moduleStdinFileInput: document.getElementById("moduleStdinFileInput"),
   runModuleButton: document.getElementById("runModuleButton"),
   moduleOutput: document.getElementById("moduleOutput"),
@@ -90,27 +90,22 @@ const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
 const MODULE_FORM_HELP = {
   pscan: {
     argsPlaceholder: "-h localhost -p 80,443 --json or -h host -p 53,161 --udp",
-    stdinPlaceholder: "not used by pscan",
     text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json; UDP: pscan -h 10.0.0.5 -p 53,161 --udp --json"
   },
   execass: {
     argsPlaceholder: "--args \"currentluid\" --debug",
-    stdinPlaceholder: "upload or paste a .NET assembly artifact",
     text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
   },
   service: {
     argsPlaceholder: "--install or --uninstall",
-    stdinPlaceholder: "not used by service",
-    text: "Installs or removes the client OS service. Requires elevated privileges."
+    text: "Installs or removes the platform-native client service. Requires elevated privileges."
   },
   setuid: {
     argsPlaceholder: "0",
-    stdinPlaceholder: "not used by setuid",
     text: "Changes the Linux client process UID."
   },
   setgid: {
     argsPlaceholder: "0",
-    stdinPlaceholder: "not used by setgid",
     text: "Changes the Linux client process GID."
   }
 };
@@ -492,8 +487,14 @@ function syncModuleFormHelp(module) {
   if (elements.moduleArgsInput) {
     elements.moduleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
   }
-  if (elements.moduleStdinInput) {
-    elements.moduleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  syncModuleStdinFileField(name);
+}
+
+function syncModuleStdinFileField(moduleName) {
+  const enabled = moduleUsesStdinFile(moduleName);
+  elements.moduleStdinFileField?.classList.toggle("hidden", !enabled);
+  if (!enabled && elements.moduleStdinFileInput) {
+    elements.moduleStdinFileInput.value = "";
   }
 }
 
@@ -522,13 +523,8 @@ async function runSelectedModule(event) {
     return;
   }
 
-  let stdin = elements.moduleStdinInput?.value || "";
   let stdinBase64 = "";
-  const stdinFile = elements.moduleStdinFileInput?.files?.[0] || null;
-  if (stdinFile && stdin) {
-    elements.moduleOutput.textContent = "Use either stdin text or stdin file, not both.";
-    return;
-  }
+  const stdinFile = moduleUsesStdinFile(module) ? (elements.moduleStdinFileInput?.files?.[0] || null) : null;
   if (stdinFile) {
     if (stdinFile.size > moduleStdinLimitBytes(module)) {
       elements.moduleOutput.textContent = `Stdin file is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
@@ -536,20 +532,16 @@ async function runSelectedModule(event) {
     }
     try {
       stdinBase64 = await readFileAsBase64(stdinFile);
-      stdin = "";
     } catch (error) {
       elements.moduleOutput.textContent = error.message;
       return;
     }
-  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(module)) {
-    elements.moduleOutput.textContent = `Stdin is too large. Maximum is ${moduleStdinLimitLabel(module)}.`;
-    return;
   }
 
   const payload = {
     connectionId: connection.connectionId,
     args,
-    stdin,
+    stdin: "",
     stdinBase64,
     timeoutSeconds: numberFieldValue(elements.moduleTimeoutInput, 60),
     outputLimitBytes: numberFieldValue(elements.moduleOutputLimitInput, 1024 * 1024)
@@ -594,16 +586,16 @@ function moduleStdinLimitBytes(moduleName) {
   return MAX_MODULE_STDIN_BYTES;
 }
 
+function moduleUsesStdinFile(moduleName) {
+  return String(moduleName || "").toLowerCase() === "execass";
+}
+
 function moduleStdinLimitLabel(moduleName) {
   const limit = moduleStdinLimitBytes(moduleName);
   if (limit === MAX_MODULE_STDIN_BYTES) {
     return MAX_MODULE_STDIN_LABEL;
   }
   return `${limit} bytes`;
-}
-
-function textByteLength(value) {
-  return new TextEncoder().encode(String(value || "")).length;
 }
 
 async function readFileAsBase64(file) {

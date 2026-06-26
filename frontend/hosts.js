@@ -35,7 +35,7 @@ const bulkModuleHelpText = document.getElementById("bulkModuleHelpText");
 const bulkModuleArgsInput = document.getElementById("bulkModuleArgsInput");
 const bulkModuleTimeoutInput = document.getElementById("bulkModuleTimeoutInput");
 const bulkModuleOutputLimitInput = document.getElementById("bulkModuleOutputLimitInput");
-const bulkModuleStdinInput = document.getElementById("bulkModuleStdinInput");
+const bulkModuleStdinFileField = document.getElementById("bulkModuleStdinFileField");
 const bulkModuleStdinFileInput = document.getElementById("bulkModuleStdinFileInput");
 const refreshBulkModulesButton = document.getElementById("refreshBulkModulesButton");
 const runSelectedModuleButton = document.getElementById("runSelectedModuleButton");
@@ -81,30 +81,28 @@ const MAX_FILE_TRANSFER_LABEL = "500 MiB";
 const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
 const MAX_MODULE_STDIN_LABEL = "8 MiB";
 const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const CROSS_PLATFORM_MODULES = {
+  service: ["linux", "windows"]
+};
 const MODULE_FORM_HELP = {
   pscan: {
     argsPlaceholder: "-h localhost -p 80,443 --json or -h host -p 53,161 --udp",
-    stdinPlaceholder: "not used by pscan",
     text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json; UDP: pscan -h 10.0.0.5 -p 53,161 --udp --json"
   },
   execass: {
     argsPlaceholder: "--args \"currentluid\" --debug",
-    stdinPlaceholder: "upload or paste a .NET assembly artifact",
     text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
   },
   service: {
     argsPlaceholder: "--install or --uninstall",
-    stdinPlaceholder: "not used by service",
-    text: "Installs or removes the client OS service. Requires elevated privileges."
+    text: "Installs or removes the platform-native client service. Requires elevated privileges."
   },
   setuid: {
     argsPlaceholder: "0",
-    stdinPlaceholder: "not used by setuid",
     text: "Changes the Linux client process UID."
   },
   setgid: {
     argsPlaceholder: "0",
-    stdinPlaceholder: "not used by setgid",
     text: "Changes the Linux client process GID."
   }
 };
@@ -896,9 +894,7 @@ function renderBulkModuleOptions(sourceRow) {
     bulkModuleSelect.value = selected.name;
   }
 
-  setBulkModuleOutput(modules.length
-    ? `Modules loaded from ${sourceRow.hostname || sourceRow.stableId}.`
-    : "No runnable web modules reported by the selected host.");
+  setBulkModuleOutput(modules.length ? "" : "No runnable web modules reported by the selected host.");
 }
 
 function syncBulkModuleHelp() {
@@ -914,8 +910,14 @@ function syncBulkModuleHelp() {
   if (bulkModuleArgsInput) {
     bulkModuleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
   }
-  if (bulkModuleStdinInput) {
-    bulkModuleStdinInput.placeholder = help.stdinPlaceholder || "optional stdin";
+  syncBulkModuleStdinFileField(name);
+}
+
+function syncBulkModuleStdinFileField(moduleName) {
+  const enabled = moduleUsesStdinFile(moduleName);
+  bulkModuleStdinFileField?.classList.toggle("hidden", !enabled);
+  if (!enabled && bulkModuleStdinFileInput) {
+    bulkModuleStdinFileInput.value = "";
   }
 }
 
@@ -933,7 +935,7 @@ function visibleWebModules(modules) {
 }
 
 function moduleForRow(module, row) {
-  const platforms = (module?.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+  const platforms = supportedPlatformsForModule(module);
   if (!platforms.length) {
     return module;
   }
@@ -948,6 +950,14 @@ function moduleForRow(module, row) {
     disabled: true,
     disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
   };
+}
+
+function supportedPlatformsForModule(module) {
+  const name = String(module?.name || "").toLowerCase();
+  if (CROSS_PLATFORM_MODULES[name]) {
+    return CROSS_PLATFORM_MODULES[name];
+  }
+  return (module?.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
 }
 
 async function runSelectedModuleOnHosts() {
@@ -988,13 +998,8 @@ async function runSelectedModuleOnHosts() {
     return;
   }
 
-  let stdin = bulkModuleStdinInput?.value || "";
   let stdinBase64 = "";
-  const stdinFile = bulkModuleStdinFileInput?.files?.[0] || null;
-  if (stdinFile && stdin) {
-    setBulkModuleOutput("Use either stdin text or stdin file, not both.", "error");
-    return;
-  }
+  const stdinFile = moduleUsesStdinFile(moduleName) ? (bulkModuleStdinFileInput?.files?.[0] || null) : null;
   if (stdinFile) {
     if (stdinFile.size > moduleStdinLimitBytes(moduleName)) {
       setBulkModuleOutput(`Stdin file is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
@@ -1002,14 +1007,10 @@ async function runSelectedModuleOnHosts() {
     }
     try {
       stdinBase64 = await readFileAsBase64(stdinFile);
-      stdin = "";
     } catch (error) {
       setBulkModuleOutput(error.message, "error");
       return;
     }
-  } else if (stdin && textByteLength(stdin) > moduleStdinLimitBytes(moduleName)) {
-    setBulkModuleOutput(`Stdin is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
-    return;
   }
 
   const command = moduleCommandLabel(moduleName, args);
@@ -1051,7 +1052,7 @@ async function runSelectedModuleOnHosts() {
           connectionId: row.connectionId || ""
         })),
         args,
-        stdin,
+        stdin: "",
         stdinBase64,
         timeoutSeconds: numberFieldValue(bulkModuleTimeoutInput, 60),
         outputLimitBytes: numberFieldValue(bulkModuleOutputLimitInput, 1024 * 1024)
@@ -1102,16 +1103,16 @@ function moduleStdinLimitBytes(moduleName) {
   return MAX_MODULE_STDIN_BYTES;
 }
 
+function moduleUsesStdinFile(moduleName) {
+  return String(moduleName || "").toLowerCase() === "execass";
+}
+
 function moduleStdinLimitLabel(moduleName) {
   const limit = moduleStdinLimitBytes(moduleName);
   if (limit === MAX_MODULE_STDIN_BYTES) {
     return MAX_MODULE_STDIN_LABEL;
   }
   return `${limit} bytes`;
-}
-
-function textByteLength(value) {
-  return new TextEncoder().encode(String(value || "")).length;
 }
 
 async function readFileAsBase64(file) {

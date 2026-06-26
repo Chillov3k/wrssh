@@ -1928,7 +1928,14 @@ pre {
 }
 
 .bulk-module-actions {
+  grid-column: -2 / -1;
   align-self: end;
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+.module-run-form .inline-actions {
+  justify-content: flex-end;
 }
 
 .host-context-menu {
@@ -3269,6 +3276,15 @@ html[data-theme="dark"] .fs-empty {
   .bulk-module-row,
   .bulk-module-stdin-row {
     grid-template-columns: 1fr;
+  }
+
+  .bulk-module-actions {
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .module-run-form .inline-actions {
+    justify-content: stretch;
   }
 
   .bulk-exec-actions {
