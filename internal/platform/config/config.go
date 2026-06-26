@@ -138,7 +138,7 @@ func Load() (Config, error) {
 		ExternalAddress:            env("RSSH_EXTERNAL_ADDRESS", ""),
 		RSSHPort:                   rsshPort,
 		RSSHListenAddr:             fmt.Sprintf(":%d", rsshPort),
-		RSSHTLS:                    envBool("RSSH_TLS", false),
+		RSSHTLS:                    envBool("RSSH_TLS", true),
 		RSSHTLSCertPath:            env("RSSH_TLS_CERT_PATH", ""),
 		RSSHTLSKeyPath:             env("RSSH_TLS_KEY_PATH", ""),
 		RSSHInsecure:               false,

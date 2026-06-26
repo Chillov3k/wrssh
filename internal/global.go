@@ -30,6 +30,12 @@ type RemoteForwardRequest struct {
 	BindPort uint32
 }
 
+const ClientMetadataRequest = "wrssh-client-metadata"
+
+type ClientMetadata struct {
+	InternalIP string
+}
+
 func (r *RemoteForwardRequest) String() string {
 	return net.JoinHostPort(r.BindAddr, fmt.Sprintf("%d", r.BindPort))
 }

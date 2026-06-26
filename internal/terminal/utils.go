@@ -199,8 +199,21 @@ func parseSingleArg(line string, startPos int) (arg Argument, endPos int) {
 			return
 		}
 
-		// Handle escaping
+		// Handle escaping. In double quotes only quote-like characters are
+		// escapable; other backslashes are preserved literally.
 		if !inSingleQuote && !escaped && c == '\\' {
+			if inDoubleQuote {
+				if arg.end+1 < len(line) {
+					next := line[arg.end+1]
+					if next == '\\' || next == '"' || next == '\'' {
+						escaped = true
+						continue
+					}
+				}
+				sb.WriteByte('\\')
+				arg.end = endPos
+				continue
+			}
 			escaped = true
 			continue
 		}
@@ -208,6 +221,11 @@ func parseSingleArg(line string, startPos int) (arg Argument, endPos int) {
 		// Handle quotes
 		if !escaped {
 			if c == '\'' && !inDoubleQuote {
+				if inSingleQuote && strings.HasSuffix(sb.String(), "\\") {
+					sb.WriteByte(c)
+					arg.end = endPos
+					continue
+				}
 				inSingleQuote = !inSingleQuote
 				continue
 			}

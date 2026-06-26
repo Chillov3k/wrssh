@@ -27,6 +27,7 @@ const PROJECT_SCOPED_VIEWS = new Set([
 ]);
 
 const THEME_STORAGE_KEY = "wrssh.theme";
+const SIDEBAR_STORAGE_KEY = "wrssh.sidebarCollapsed";
 const LIGHT_THEME = "light";
 const DARK_THEME = "dark";
 const KNOWN_VIEW_PATHS = Object.values(VIEW_PATHS).sort((left, right) => right.length - left.length);
@@ -67,6 +68,7 @@ export async function initPage({ title, load, requireProject = false }) {
   }
 
   initThemeUI();
+  initSidebarUI();
   syncNavigation(ctx.project);
   bindAuth(ctx, load, requireProject);
 
@@ -206,6 +208,84 @@ function initThemeUI() {
     applyTheme(currentTheme() === DARK_THEME ? LIGHT_THEME : DARK_THEME);
   });
   syncThemeToggle(themeToggle);
+}
+
+function initSidebarUI() {
+  const appShell = document.querySelector(".app-shell");
+  const sidebar = document.querySelector(".sidebar");
+  const brandHead = document.querySelector(".brand-head");
+  if (!appShell || !sidebar || !brandHead) {
+    return;
+  }
+
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    const label = item.textContent.trim();
+    item.dataset.short = sidebarShortLabel(label);
+    item.setAttribute("title", label);
+  });
+
+  const editProfileButton = byId("editProfileButton");
+  const logoutButton = byId("logoutButton");
+  if (editProfileButton) {
+    editProfileButton.dataset.short = "E";
+    editProfileButton.setAttribute("title", "Edit profile");
+  }
+  if (logoutButton) {
+    logoutButton.dataset.short = "L";
+    logoutButton.setAttribute("title", "Logout");
+  }
+
+  let sidebarToggle = brandHead.querySelector(".sidebar-toggle");
+  if (!sidebarToggle) {
+    sidebarToggle = document.createElement("button");
+    sidebarToggle.className = "sidebar-toggle";
+    sidebarToggle.type = "button";
+    brandHead.appendChild(sidebarToggle);
+  }
+
+  const applyCollapsed = (collapsed) => {
+    appShell.classList.toggle("sidebar-collapsed", collapsed);
+    sidebarToggle.textContent = collapsed ? "›" : "‹";
+    sidebarToggle.setAttribute("aria-label", collapsed ? "Show menu" : "Hide menu");
+    sidebarToggle.setAttribute("title", collapsed ? "Show menu" : "Hide menu");
+    sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? "1" : "0");
+    } catch (error) {
+      console.warn("sidebar storage unavailable", error);
+    }
+  };
+
+  applyCollapsed(readStoredSidebarCollapsed());
+  sidebarToggle.addEventListener("click", () => {
+    applyCollapsed(!appShell.classList.contains("sidebar-collapsed"));
+  });
+}
+
+function readStoredSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+  } catch (error) {
+    console.warn("sidebar storage unavailable", error);
+    return false;
+  }
+}
+
+function sidebarShortLabel(label) {
+  switch (label.toLowerCase()) {
+  case "overview":
+    return "O";
+  case "hosts":
+    return "H";
+  case "builds":
+    return "B";
+  case "downloads":
+    return "D";
+  case "manage users":
+    return "U";
+  default:
+    return label.slice(0, 1).toUpperCase() || "?";
+  }
 }
 
 async function loadWithAuth(ctx, load) {
@@ -604,6 +684,7 @@ export function makeClientRow(host, connection) {
     connectionId: connection?.connectionId || "",
     hostname: hostNameLabel(host, connection),
     ip: connectionIpLabel(connection, host),
+    internalIp: connection?.internalIp || host.internalIp || "",
     remoteAddr: connection?.remoteAddr || host.remoteAddr || "",
     comment: connection?.comment || host.comment || "",
     version: connection?.version || host.version || "",
@@ -623,7 +704,24 @@ function hostNameLabel(host, connection) {
 }
 
 function connectionIpLabel(connection, host) {
-  return connection?.remoteIp || extractRemoteHost(connection?.remoteAddr) || host.ip || extractRemoteHost(host.remoteAddr) || "-";
+  const externalIp = connection?.remoteIp || extractRemoteHost(connection?.remoteAddr) || host.ip || extractRemoteHost(host.remoteAddr) || "";
+  const internalIp = connection?.internalIp || host.internalIp || "";
+  return combinedIpLabel(externalIp, internalIp);
+}
+
+function combinedIpLabel(externalIp, internalIp) {
+  const external = String(externalIp || "").trim();
+  const internal = String(internalIp || "").trim();
+  if (!external && !internal) {
+    return "-";
+  }
+  if (!internal || external === internal) {
+    return external || internal;
+  }
+  if (!external) {
+    return internal;
+  }
+  return `${external} / ${internal}`;
 }
 
 export function extractRemoteHost(value) {
@@ -654,6 +752,7 @@ export function rowMatchesQuery(row, query) {
     row.hostname,
     row.project,
     row.ip,
+    row.internalIp,
     row.remoteAddr,
     row.comment,
     row.hostId,
@@ -788,15 +887,17 @@ export function artifactSizeLabel(value) {
   return Number(value || 0).toFixed(2);
 }
 
-export function renderArtifactLink(label, url) {
+export function renderArtifactLink(label, url, options = {}) {
+  const displayText = options.displayText || url;
+  const copyText = options.copyText || displayText;
   return `
     <div class="artifact-link">
       <strong>${escapeHtml(label)}</strong>
       <div class="artifact-actions">
         <a class="inline-link" href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open</a>
-        <button class="ghost-button" data-copy-artifact="${escapeAttribute(url)}">Copy</button>
+        <button class="ghost-button" data-copy-artifact="${escapeAttribute(copyText)}">Copy</button>
       </div>
-      <code>${escapeHtml(url)}</code>
+      <code>${escapeHtml(displayText)}</code>
     </div>
   `;
 }

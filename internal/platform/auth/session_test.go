@@ -32,6 +32,26 @@ func TestSessionCookieRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionCookieDefaultTTLIsSevenDays(t *testing.T) {
+	manager := New("test-secret")
+	recorder := httptest.NewRecorder()
+	before := time.Now().Add(SessionTTL - time.Minute)
+
+	if err := manager.SetSessionCookie(recorder, 42, 7, 0, false); err != nil {
+		t.Fatalf("set cookie: %v", err)
+	}
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one cookie, got %d", len(cookies))
+	}
+
+	after := time.Now().Add(SessionTTL + time.Minute)
+	if cookies[0].Expires.Before(before) || cookies[0].Expires.After(after) {
+		t.Fatalf("cookie expiry = %s, expected around %s", cookies[0].Expires, SessionTTL)
+	}
+}
+
 func TestSessionCookieRejectsInvalidSignature(t *testing.T) {
 	manager := New("test-secret")
 	request := httptest.NewRequest("GET", "/", nil)

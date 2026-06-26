@@ -127,6 +127,44 @@
               <div id="commandTemplates" class="command-grid"></div>
             </div>
 
+            <div class="subpanel module-panel">
+              <div class="subpanel-header">
+                <div>
+                  <p class="eyebrow">Subsystems</p>
+                  <h4>Modules</h4>
+                </div>
+                <button id="refreshModulesButton" class="ghost-button" type="button">Refresh</button>
+              </div>
+              <div id="moduleList" class="module-list"></div>
+              <form id="moduleRunForm" class="module-run-form">
+                <label class="field-stack">
+                  <span>Module</span>
+                  <select id="moduleSelect" name="module"></select>
+                  <small id="moduleHelpText" class="field-help muted"></small>
+                </label>
+                <label class="field-stack field-wide">
+                  <span>Args</span>
+                  <input id="moduleArgsInput" name="args" type="text" placeholder="module arguments" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field-stack">
+                  <span>Timeout Seconds</span>
+                  <input id="moduleTimeoutInput" name="timeoutSeconds" type="number" min="1" max="600" value="60">
+                </label>
+                <label class="field-stack">
+                  <span>Output Limit Bytes</span>
+                  <input id="moduleOutputLimitInput" name="outputLimitBytes" type="number" min="1024" max="4194304" value="1048576">
+                </label>
+                <label id="moduleStdinFileField" class="field-stack field-wide hidden">
+                  <span>Stdin file</span>
+                  <input id="moduleStdinFileInput" name="stdinFile" type="file">
+                </label>
+                <div class="inline-actions field-wide">
+                  <button id="runModuleButton" class="action-button" type="submit">Run Module</button>
+                </div>
+              </form>
+              <pre id="moduleOutput" class="output-block small-output"></pre>
+            </div>
+
             <div id="hostMetadataPanel" class="subpanel hidden">
               <div class="subpanel-header">
                 <div>
@@ -180,7 +218,7 @@
     <div class="filesystem-card">
       <div class="filesystem-head">
         <div>
-          <p class="eyebrow">Remote File System</p>
+          <p class="eyebrow">Remote file system</p>
           <h2 id="filesystemTitle">Open file system</h2>
           <p id="filesystemMeta" class="muted">Browse the selected live client over SFTP. Max upload/download 500 MiB.</p>
         </div>
@@ -189,9 +227,13 @@
 
       <div class="filesystem-toolbar">
         <div>
-          <span class="command-label">Selected Directory</span>
+          <span class="command-label">Selected directory</span>
           <strong id="filesystemCurrentPath">/</strong>
         </div>
+        <form id="filesystemPathForm" class="filesystem-path-form">
+          <input id="filesystemPathInput" type="text" placeholder="~/.ssh, /etc/ssh, C:/Users" autocomplete="off" spellcheck="false">
+          <button id="filesystemGoButton" class="ghost-button" type="submit">Go</button>
+        </form>
         <div class="inline-actions">
           <button id="refreshFilesystemButton" class="ghost-button" type="button">Refresh</button>
           <button id="uploadFilesystemButton" class="action-button" type="button">Upload</button>

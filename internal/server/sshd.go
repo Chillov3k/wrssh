@@ -494,7 +494,7 @@ func acceptConn(c net.Conn, config *ssh.ServerConfig, timeout int, dataDir strin
 		}
 
 		go func() {
-			go ssh.DiscardRequests(reqs)
+			go handleClientRequests(reqs, sshConn)
 
 			err = registerChannelCallbacks("", nil, chans, clientLog, map[string]func(_ string, user *users.User, newChannel ssh.NewChannel, log logger.Logger){
 				"rssh-download":   handlers.Download(dataDir),
@@ -534,5 +534,28 @@ func acceptConn(c net.Conn, config *ssh.ServerConfig, timeout int, dataDir strin
 	default:
 		sshConn.Close()
 		clientLog.Warning("Client connected but type was unknown, terminating: %s", sshConn.Permissions.Extensions["type"])
+	}
+}
+
+func handleClientRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
+	for req := range reqs {
+		switch req.Type {
+		case internal.ClientMetadataRequest:
+			var metadata internal.ClientMetadata
+			if err := ssh.Unmarshal(req.Payload, &metadata); err != nil {
+				if req.WantReply {
+					req.Reply(false, nil)
+				}
+				continue
+			}
+			users.SetClientMetadata(conn, metadata)
+			if req.WantReply {
+				req.Reply(true, nil)
+			}
+		default:
+			if req.WantReply {
+				req.Reply(false, nil)
+			}
+		}
 	}
 }

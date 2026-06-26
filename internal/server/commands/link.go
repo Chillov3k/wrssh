@@ -50,6 +50,10 @@ func linkArgumentDescriptions() map[string]string {
 		"sni":               "When TLS is in use, set a custom SNI for the client to connect with",
 		"working-directory": "Set download/working directory for automatic script (i.e doing curl https://<url>.sh)",
 		"raw-download":      "Download over raw TCP, outputs bash downloader rather than http",
+		"no-history-save":   "Detach startup and reduce shell history persistence for commands run through this agent",
+		"busybox-fallback":  "Embed a Linux BusyBox fallback for distroless targets where shell or common command executables are missing",
+		"pscan":             "Compile the optional TCP connect scanner module into the client",
+		"execass":           "Compile the optional Windows-only .NET execute-assembly module into the client",
 		"use-kerberos":      "Instruct client to try and use kerberos ticket when using a proxy",
 		"log-level":         "Set default output logging levels, [INFO,WARNING,ERROR,FATAL,DISABLED]",
 		"ntlm-proxy-creds":  "Set NTLM proxy credentials in format DOMAIN\\USER:PASS",
@@ -74,6 +78,10 @@ func BuildOptionHelp() map[string]string {
 		"lzma",
 		"raw-download",
 		"use-host-header",
+		"no-history-save",
+		"busybox-fallback",
+		"pscan",
+		"execass",
 	}
 	help := make(map[string]string, len(keys))
 	for _, key := range keys {
@@ -158,6 +166,14 @@ func (l *link) Run(user *users.User, tty io.ReadWriter, line terminal.ParsedLine
 		DisableLibC:     line.IsSet("no-lib-c"),
 		UseKerberosAuth: line.IsSet("use-kerberos"),
 		RawDownload:     line.IsSet("raw-download"),
+		NoHistorySave:   line.IsSet("no-history-save"),
+		BusyBoxFallback: line.IsSet("busybox-fallback"),
+	}
+	if line.IsSet("pscan") {
+		buildConfig.BuildTags = append(buildConfig.BuildTags, "pscan")
+	}
+	if line.IsSet("execass") {
+		buildConfig.BuildTags = append(buildConfig.BuildTags, "execass")
 	}
 
 	var err error

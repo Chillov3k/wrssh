@@ -71,7 +71,7 @@ func (s *Service) ListFilesOnConnection(connectionID, remotePath string) (FileLi
 		return listWindowsDrives(client), nil
 	}
 
-	cleanPath := CleanRemotePath(remotePath)
+	cleanPath := resolveRemotePath(client, remotePath)
 	entries, err := client.ReadDir(cleanPath)
 	if err != nil {
 		return FileList{}, err
@@ -129,7 +129,7 @@ func (s *Service) OpenFileOnConnection(connectionID, remotePath string) (*FileDo
 		return nil, err
 	}
 
-	cleanPath := CleanRemotePath(remotePath)
+	cleanPath := resolveRemotePath(client, remotePath)
 	info, err := client.Stat(cleanPath)
 	if err != nil {
 		closeClient()
@@ -169,7 +169,7 @@ func (s *Service) UploadFileOnConnection(connectionID, directory, filename strin
 	}
 	defer closeClient()
 
-	directory = CleanRemotePath(directory)
+	directory = resolveRemotePath(client, directory)
 	remotePath := JoinRemotePath(directory, name)
 	file, err := client.OpenFile(remotePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
@@ -298,12 +298,10 @@ func fileEntryFromInfo(parent string, info os.FileInfo) FileEntry {
 }
 
 func CleanRemotePath(remotePath string) string {
-	value := strings.TrimSpace(remotePath)
+	value := cleanRemotePathInput(remotePath)
 	if value == "" {
 		return "/"
 	}
-	value = strings.ReplaceAll(value, "\x00", "")
-	value = strings.ReplaceAll(value, "\\", "/")
 	if strings.HasPrefix(value, "/") && isWindowsDrivePath(strings.TrimPrefix(value, "/")) {
 		return cleanWindowsDrivePath(strings.TrimPrefix(value, "/"))
 	}
@@ -318,6 +316,47 @@ func CleanRemotePath(remotePath string) string {
 		return "/"
 	}
 	return cleaned
+}
+
+func resolveRemotePath(client *sftp.Client, remotePath string) string {
+	value := cleanRemotePathInput(remotePath)
+	if isHomeRelativeRemotePath(value) {
+		if cwd, err := client.Getwd(); err == nil {
+			if expanded, ok := expandHomeRemotePath(value, cwd); ok {
+				return expanded
+			}
+		}
+	}
+	return CleanRemotePath(value)
+}
+
+func cleanRemotePathInput(remotePath string) string {
+	value := strings.TrimSpace(remotePath)
+	value = strings.ReplaceAll(value, "\x00", "")
+	value = strings.ReplaceAll(value, "\\", "/")
+	return value
+}
+
+func isHomeRelativeRemotePath(remotePath string) bool {
+	return remotePath == "~" || strings.HasPrefix(remotePath, "~/")
+}
+
+func expandHomeRemotePath(remotePath, home string) (string, bool) {
+	value := cleanRemotePathInput(remotePath)
+	if !isHomeRelativeRemotePath(value) {
+		return "", false
+	}
+
+	cleanHome := CleanRemotePath(home)
+	if value == "~" {
+		return cleanHome, true
+	}
+
+	rest := strings.TrimPrefix(value, "~/")
+	if rest == "" {
+		return cleanHome, true
+	}
+	return JoinRemotePath(cleanHome, rest), true
 }
 
 func JoinRemotePath(parent, name string) string {

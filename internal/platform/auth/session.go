@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const CookieName = "rssh_web_session"
+const (
+	CookieName = "rssh_web_session"
+	SessionTTL = 7 * 24 * time.Hour
+)
 
 type Session struct {
 	UserID  uint
@@ -29,7 +32,7 @@ func New(secret string) *Manager {
 
 func (m *Manager) SetSessionCookie(w http.ResponseWriter, userID uint, version uint64, ttl time.Duration, secure bool) error {
 	if ttl <= 0 {
-		ttl = 12 * time.Hour
+		ttl = SessionTTL
 	}
 
 	expiresAt := time.Now().Add(ttl).Unix()

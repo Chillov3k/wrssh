@@ -11,6 +11,8 @@ import {
 } from "./shared.js";
 
 const CUSTOM_ADDRESS_VALUE = "__custom__";
+const FRONTEND_GOOS_FALLBACKS = ["linux", "windows", "darwin", "freebsd"];
+const FRONTEND_GOARCH_FALLBACKS = ["amd64", "arm64", "386", "mips", "mipsle", "mips64", "mips64le"];
 
 const form = byId("artifactForm");
 const artifactBuilderPanel = byId("artifactBuilderPanel");
@@ -21,6 +23,7 @@ const connectBackPort = byId("connectBackPort");
 const goosSelect = byId("goosSelect");
 const goarchSelect = byId("goarchSelect");
 const output = byId("artifactCreateOutput");
+const artifactNameInput = form.elements.namedItem("name");
 
 const pageState = {
   systemOptions: null,
@@ -32,6 +35,10 @@ form.addEventListener("change", syncCompressionOptions);
 connectBackHost.addEventListener("change", handleAddressSelectionChange);
 connectBackCustomHost.addEventListener("input", () => renderMeta(pageState.ctx));
 connectBackPort.addEventListener("input", () => renderMeta(pageState.ctx));
+goosSelect.addEventListener("change", syncArtifactNameRequirement);
+if (artifactNameInput instanceof HTMLInputElement) {
+  artifactNameInput.addEventListener("input", () => validateArtifactName(false));
+}
 
 initPage({
   title: "Builds",
@@ -51,12 +58,12 @@ function populateBuildOptions() {
   const options = pageState.systemOptions;
   populateSelect(connectBackHost, buildAddressItems(options), options.defaultInterface);
 
-  populateSelect(goosSelect, options.goos.map((value) => ({
+  populateSelect(goosSelect, mergedGOOSOptions(options).map((value) => ({
     value,
     label: value
   })), goosSelect.value || "linux");
 
-  populateSelect(goarchSelect, options.goarch.map((value) => ({
+  populateSelect(goarchSelect, mergedGOARCHOptions(options).map((value) => ({
     value,
     label: value
   })), goarchSelect.value || "amd64");
@@ -67,7 +74,30 @@ function populateBuildOptions() {
 
   handleAddressSelectionChange();
   syncCompressionOptions();
+  syncArtifactNameRequirement();
   applyBuildFlagHelp(options);
+}
+
+function mergedGOOSOptions(options) {
+  return uniqueStrings([...(options.goos || []), ...FRONTEND_GOOS_FALLBACKS]);
+}
+
+function mergedGOARCHOptions(options) {
+  return uniqueStrings([...(options.goarch || []), ...FRONTEND_GOARCH_FALLBACKS]);
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+  for (const rawValue of values) {
+    const value = String(rawValue || "").trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function buildAddressItems(options) {
@@ -137,10 +167,15 @@ async function createArtifact(event) {
 
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
-  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader"].forEach((key) => {
+  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback", "pscan", "execass"].forEach((key) => {
     payload[key] = formData.get(key) === "on";
   });
+  payload.buildTags = ["pscan", "execass"].filter((tag) => payload[tag]);
   payload.project = pageState.ctx?.project || "";
+
+  if (!validateArtifactName(true)) {
+    return;
+  }
 
   payload.connectBackHost = selectedConnectBackHost();
   if (!payload.connectBackHost) {
@@ -150,6 +185,10 @@ async function createArtifact(event) {
 
   if (payload.lzma && !payload.upx) {
     output.textContent = "LZMA exists in rssh only together with UPX. Enable UPX or disable LZMA.";
+    return;
+  }
+  if (payload.busyBoxFallback && payload.goos !== "linux") {
+    output.textContent = "BusyBox fallback is only available for Linux artifacts.";
     return;
   }
 
@@ -182,6 +221,39 @@ function selectedConnectBackHost() {
     return connectBackCustomHost.value.trim();
   }
   return connectBackHost.value.trim();
+}
+
+function syncArtifactNameRequirement() {
+  if (!(artifactNameInput instanceof HTMLInputElement)) {
+    return;
+  }
+
+  artifactNameInput.placeholder = isWindowsBuild() ? "agent.exe" : "Name of agent";
+  validateArtifactName(false);
+}
+
+function validateArtifactName(showValidation) {
+  if (!(artifactNameInput instanceof HTMLInputElement)) {
+    return true;
+  }
+
+  const message = "Windows artifact name must end with .exe, for example love.exe.";
+  const invalid = isWindowsBuild() && !artifactNameInput.value.trim().toLowerCase().endsWith(".exe");
+  artifactNameInput.setCustomValidity(invalid ? message : "");
+
+  if (!invalid) {
+    return true;
+  }
+
+  if (showValidation) {
+    output.textContent = message;
+    artifactNameInput.reportValidity();
+  }
+  return false;
+}
+
+function isWindowsBuild() {
+  return goosSelect.value.trim().toLowerCase() === "windows";
 }
 
 function renderMeta(ctx) {

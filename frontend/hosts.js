@@ -3,6 +3,7 @@ import {
   appPath,
   buildJumpTarget,
   copyFromButton,
+  copyText,
   escapeAttribute,
   escapeHtml,
   formatDate,
@@ -28,6 +29,17 @@ const selectVisibleHostsButton = document.getElementById("selectVisibleHostsButt
 const clearSelectedHostsButton = document.getElementById("clearSelectedHostsButton");
 const runSelectedHostsButton = document.getElementById("runSelectedHostsButton");
 const bulkExecOutput = document.getElementById("bulkExecOutput");
+const bulkModulePanel = document.getElementById("bulkModulePanel");
+const bulkModuleSelect = document.getElementById("bulkModuleSelect");
+const bulkModuleHelpText = document.getElementById("bulkModuleHelpText");
+const bulkModuleArgsInput = document.getElementById("bulkModuleArgsInput");
+const bulkModuleTimeoutInput = document.getElementById("bulkModuleTimeoutInput");
+const bulkModuleOutputLimitInput = document.getElementById("bulkModuleOutputLimitInput");
+const bulkModuleStdinFileField = document.getElementById("bulkModuleStdinFileField");
+const bulkModuleStdinFileInput = document.getElementById("bulkModuleStdinFileInput");
+const refreshBulkModulesButton = document.getElementById("refreshBulkModulesButton");
+const runSelectedModuleButton = document.getElementById("runSelectedModuleButton");
+const bulkModuleOutput = document.getElementById("bulkModuleOutput");
 const offlineDeleteOverlay = document.getElementById("offlineDeleteOverlay");
 const offlineDeleteMessage = document.getElementById("offlineDeleteMessage");
 const offlineDeleteError = document.getElementById("offlineDeleteError");
@@ -44,6 +56,8 @@ const closeFilesystemButton = document.getElementById("closeFilesystemButton");
 const filesystemTitle = document.getElementById("filesystemTitle");
 const filesystemMetaText = document.getElementById("filesystemMeta");
 const filesystemCurrentPath = document.getElementById("filesystemCurrentPath");
+const filesystemPathForm = document.getElementById("filesystemPathForm");
+const filesystemPathInput = document.getElementById("filesystemPathInput");
 const refreshFilesystemButton = document.getElementById("refreshFilesystemButton");
 const uploadFilesystemButton = document.getElementById("uploadFilesystemButton");
 const filesystemMessage = document.getElementById("filesystemMessage");
@@ -53,6 +67,7 @@ const filesystemPreviewPath = document.getElementById("filesystemPreviewPath");
 const filesystemPreviewContent = document.getElementById("filesystemPreviewContent");
 const closeFilesystemPreviewButton = document.getElementById("closeFilesystemPreviewButton");
 const filesystemUploadInput = document.getElementById("filesystemUploadInput");
+const hostContextMenu = document.getElementById("hostContextMenu");
 
 const OS_FILTERS = [
   { key: "all", label: "All" },
@@ -63,17 +78,57 @@ const OS_FILTERS = [
 
 const MAX_FILE_TRANSFER_BYTES = 500 * 1024 * 1024;
 const MAX_FILE_TRANSFER_LABEL = "500 MiB";
+const MAX_MODULE_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_MODULE_STDIN_LABEL = "8 MiB";
+const HIDDEN_WEB_MODULES = new Set(["list", "sftp"]);
+const CROSS_PLATFORM_MODULES = {
+  service: ["linux", "windows"]
+};
+const MODULE_FORM_HELP = {
+  pscan: {
+    argsPlaceholder: "-h localhost -p 80,443 --json or -h host -p 53,161 --udp",
+    text: "Example: pscan -h 10.0.0.0/24 -p 80,443 --json; UDP: pscan -h 10.0.0.5 -p 53,161 --udp --json"
+  },
+  execass: {
+    argsPlaceholder: "--args \"currentluid\" --debug",
+    text: "Upload the assembly through Stdin file, then pass assembly arguments with --args."
+  },
+  service: {
+    argsPlaceholder: "--install or --uninstall",
+    text: "Installs or removes the platform-native client service. Requires elevated privileges."
+  },
+  setuid: {
+    argsPlaceholder: "0",
+    text: "Changes the Linux client process UID."
+  },
+  setgid: {
+    argsPlaceholder: "0",
+    text: "Changes the Linux client process GID."
+  }
+};
 
 const pageState = {
   hosts: [],
   systemOptions: null,
   ctx: null,
   osFilter: "all",
+  sort: {
+    key: "status",
+    direction: "desc"
+  },
   selectedRows: new Set(),
   runningRows: new Set(),
   commandResults: new Map(),
+  bulkModules: {
+    items: [],
+    loading: false,
+    running: false,
+    error: "",
+    loadedRowKey: ""
+  },
   pendingOfflineDelete: null,
   pendingOnlineDelete: null,
+  contextRowKey: "",
   filesystem: {
     target: null,
     selectedDirectory: "/",
@@ -102,6 +157,14 @@ clearSelectedHostsButton.addEventListener("click", () => {
   renderHosts();
 });
 runSelectedHostsButton.addEventListener("click", runSelectedHosts);
+bulkModulePanel?.addEventListener("toggle", () => {
+  if (bulkModulePanel.open) {
+    void loadBulkModules(false);
+  }
+});
+refreshBulkModulesButton?.addEventListener("click", () => loadBulkModules(true));
+bulkModuleSelect?.addEventListener("change", syncBulkModuleHelp);
+runSelectedModuleButton?.addEventListener("click", runSelectedModuleOnHosts);
 bulkCommandInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") {
     return;
@@ -125,6 +188,7 @@ onlineDeleteOverlay.addEventListener("click", (event) => {
 });
 confirmOnlineDeleteButton.addEventListener("click", deleteOnlineFromModal);
 closeFilesystemButton.addEventListener("click", closeFilesystem);
+filesystemPathForm.addEventListener("submit", navigateFilesystemPath);
 refreshFilesystemButton.addEventListener("click", refreshSelectedFilesystemDirectory);
 uploadFilesystemButton.addEventListener("click", () => triggerFilesystemUpload(pageState.filesystem.selectedDirectory));
 filesystemTree.addEventListener("click", handleFilesystemClick);
@@ -145,9 +209,18 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && fileSystemOverlay.classList.contains("visible")) {
     closeFilesystem();
   }
+  if (event.key === "Escape" && !hostContextMenu.classList.contains("hidden")) {
+    closeHostContextMenu();
+  }
 });
 
 hostTable.addEventListener("click", async (event) => {
+  const sortButton = event.target.closest("[data-host-sort]");
+  if (sortButton) {
+    setHostSort(sortButton.dataset.hostSort || "");
+    return;
+  }
+
   const selectVisibleToggle = event.target.closest("[data-select-visible-toggle]");
   if (selectVisibleToggle) {
     toggleVisibleSelection(selectVisibleToggle.checked);
@@ -181,6 +254,12 @@ hostTable.addEventListener("click", async (event) => {
     return;
   }
 
+  const copyResultButton = event.target.closest("[data-copy-result]");
+  if (copyResultButton) {
+    await copyExecutionResult(copyResultButton);
+    return;
+  }
+
   const row = event.target.closest("[data-open-shell]");
   if (!row || event.target.closest("a,button,input,label,.client-command-result")) {
     return;
@@ -188,6 +267,32 @@ hostTable.addEventListener("click", async (event) => {
 
   window.location.href = row.dataset.openShell;
 });
+
+hostTable.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest("[data-host-row-key]");
+  if (!row) {
+    return;
+  }
+  event.preventDefault();
+  openHostContextMenu(row.dataset.hostRowKey || "", event.clientX, event.clientY);
+});
+
+hostContextMenu.addEventListener("click", async (event) => {
+  const actionButton = event.target.closest("[data-context-action]");
+  if (!actionButton) {
+    return;
+  }
+  await handleHostContextAction(actionButton.dataset.contextAction || "");
+});
+
+document.addEventListener("click", (event) => {
+  if (!hostContextMenu.classList.contains("hidden") && !event.target.closest("#hostContextMenu")) {
+    closeHostContextMenu();
+  }
+});
+
+window.addEventListener("resize", closeHostContextMenu);
+window.addEventListener("scroll", closeHostContextMenu, true);
 
 initPage({
   title: "Hosts",
@@ -213,7 +318,7 @@ function renderHosts() {
   const counts = countRowsByOS(allRows);
   syncOSFilterButtons(counts);
 
-  const rows = filteredRows(allRows);
+  const rows = sortedRows(filteredRows(allRows));
   syncBulkControls(rows);
 
   if (!rows.length) {
@@ -222,35 +327,29 @@ function renderHosts() {
     return;
   }
 
-  const jumpTarget = buildJumpTarget(pageState.systemOptions, rows[0]?.host || null, pageState.ctx?.user);
   const selectedVisibleCount = rows.filter((row) => pageState.selectedRows.has(row.key)).length;
 
   hostTable.innerHTML = `
-    <div class="table-toolbar">
-      <div>
-        <p class="eyebrow">Client Inventory</p>
-        <h3>${rows.length} client${rows.length === 1 ? "" : "s"}</h3>
-      </div>
-      <div class="inline-actions">
-        <span class="chip">${rows.filter((row) => row.connected).length} online</span>
-        <span class="chip">${rows.filter((row) => !row.connected).length} offline</span>
-      </div>
+    <div class="hosts-strip-toolbar">
+      <span>${rows.length} client${rows.length === 1 ? "" : "s"}</span>
+      <span>${rows.filter((row) => row.connected).length} online</span>
+      <span>${rows.filter((row) => !row.connected).length} offline</span>
     </div>
-    <div class="table-scroll">
-      <div class="client-table client-table-hosts">
-        <div class="client-table-head client-table-head-hosts">
+    <div class="hosts-list-shell">
+      <div class="hosts-list">
+        <div class="hosts-list-head">
           <span class="client-select-head">
-            <input type="checkbox" class="row-selector" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
+            <input type="checkbox" class="row-selector hosts-select-all" title="Select all visible" aria-label="Select all visible hosts" data-select-visible-toggle ${selectedVisibleCount > 0 && selectedVisibleCount === rows.length ? "checked" : ""}>
           </span>
-          <span>ID</span>
-          <span>Host</span>
-          <span>Network</span>
-          <span>Platform</span>
-          <span>Timestamps</span>
-          <span>Status</span>
+          ${renderSortHeader("os", "OS")}
+          ${renderSortHeader("ip", "IP")}
+          ${renderSortHeader("user", "User")}
+          ${renderSortHeader("host", "Host")}
+          ${renderSortHeader("sessionTime", "Session time")}
+          ${renderSortHeader("status", "Status")}
         </div>
-        <div class="client-table-body">
-          ${rows.map((row) => renderRow(row, jumpTarget)).join("")}
+        <div class="hosts-list-body">
+          ${rows.map((row) => renderRow(row)).join("")}
         </div>
       </div>
     </div>
@@ -263,6 +362,116 @@ function filteredRows(existingRows = null) {
   const query = hostSearch.value.trim().toLowerCase();
   const rows = existingRows || getClientRows(pageState.hosts);
   return rows.filter((row) => rowMatchesQuery(row, query) && rowMatchesOS(row, pageState.osFilter));
+}
+
+function sortedRows(rows) {
+  const direction = pageState.sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const result = compareRows(left, right, pageState.sort.key);
+    if (result !== 0) {
+      return result * direction;
+    }
+
+    if (left.connected !== right.connected) {
+      return left.connected ? -1 : 1;
+    }
+
+    return compareDateRows(right.dateAdded, left.dateAdded) || compareStrings(left.hostname, right.hostname);
+  });
+}
+
+function compareRows(left, right, key) {
+  switch (key) {
+  case "os":
+    return compareStrings(parsePlatform(left.version).label, parsePlatform(right.version).label);
+  case "ip":
+    return compareIPLabels(left.ip, right.ip);
+  case "user":
+    return compareStrings(splitHostIdentity(left.hostname).user, splitHostIdentity(right.hostname).user);
+  case "host":
+    return compareStrings(splitHostIdentity(left.hostname).host, splitHostIdentity(right.hostname).host);
+  case "sessionTime":
+    return compareDateRows(left.dateAdded, right.dateAdded);
+  case "status":
+    return Number(left.connected) - Number(right.connected);
+  default:
+    return 0;
+  }
+}
+
+function compareStrings(left, right) {
+  return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareDateRows(left, right) {
+  return dateValue(left) - dateValue(right);
+}
+
+function compareIPLabels(left, right) {
+  const leftParts = parseIPv4(left);
+  const rightParts = parseIPv4(right);
+  if (leftParts && rightParts) {
+    for (let index = 0; index < leftParts.length; index += 1) {
+      if (leftParts[index] !== rightParts[index]) {
+        return leftParts[index] - rightParts[index];
+      }
+    }
+    return 0;
+  }
+
+  return compareStrings(left, right);
+}
+
+function parseIPv4(value) {
+  const primary = String(value || "").split("/")[0].trim();
+  const parts = primary.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+
+  return numbers;
+}
+
+function dateValue(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function setHostSort(key) {
+  if (!key) {
+    return;
+  }
+
+  if (pageState.sort.key === key) {
+    pageState.sort.direction = pageState.sort.direction === "asc" ? "desc" : "asc";
+  } else {
+    pageState.sort.key = key;
+    pageState.sort.direction = key === "sessionTime" || key === "status" ? "desc" : "asc";
+  }
+
+  renderHosts();
+}
+
+function renderSortHeader(key, label) {
+  const active = pageState.sort.key === key;
+  const direction = active ? pageState.sort.direction : "";
+  return `
+    <button class="hosts-sort-button ${active ? "is-active" : ""}" type="button" data-host-sort="${escapeAttribute(key)}" aria-sort="${active ? (direction === "asc" ? "ascending" : "descending") : "none"}">
+      <span>${escapeHtml(label)}</span>
+      <span class="sort-arrows" aria-hidden="true">
+        <span class="sort-arrow-up ${active && direction === "asc" ? "active" : ""}"></span>
+        <span class="sort-arrow-down ${active && direction === "desc" ? "active" : ""}"></span>
+      </span>
+    </button>
+  `;
 }
 
 function countRowsByOS(rows) {
@@ -301,91 +510,244 @@ function rowMatchesOS(row, filter) {
   return parsePlatform(row.version).os === filter;
 }
 
-function renderRow(row, jumpTarget) {
-  const command = hostCommandTemplates(row.host, row.connection, jumpTarget).ssh;
+function osIconMarkup(os) {
+  switch (os) {
+  case "windows":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 4.4 10.8 3v8.1H3V4.4Zm9.2-1.7L21 1.2v9.9h-8.8V2.7ZM3 12.9h7.8V21L3 19.6v-6.7Zm9.2 0H21v9.9l-8.8-1.5v-8.4Z"></path>
+      </svg>
+    `;
+  case "linux":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2.6c-2.5 0-4.2 2.1-4.2 5.1 0 1.2-.4 2.3-1.1 3.5-.8 1.2-1.6 2.6-1.6 4.8 0 3.2 2.5 5.4 6.9 5.4s6.9-2.2 6.9-5.4c0-2.1-.8-3.6-1.6-4.8-.7-1.1-1.1-2.2-1.1-3.5 0-3-1.7-5.1-4.2-5.1Zm-1.7 4.7c.6 0 1 .5 1 1.1s-.4 1.1-1 1.1-1-.5-1-1.1.4-1.1 1-1.1Zm3.4 0c.6 0 1 .5 1 1.1s-.4 1.1-1 1.1-1-.5-1-1.1.4-1.1 1-1.1Zm-1.7 5 3.3 1.4-3.3 1.4-3.3-1.4 3.3-1.4Z"></path>
+      </svg>
+    `;
+  case "darwin":
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M16.7 2.4c.1 1.2-.4 2.3-1.2 3.2-.8.9-1.9 1.5-3 1.4-.1-1.1.4-2.2 1.2-3 .8-.9 2-1.5 3-1.6ZM20.2 17.4c-.5 1.2-.8 1.7-1.5 2.8-.9 1.3-2.2 2.9-3.8 2.9-1.4 0-1.8-.9-3.7-.9s-2.3.9-3.7.9c-1.6 0-2.8-1.5-3.7-2.8-2.6-3.8-2.9-8.3-1.3-10.7 1.1-1.7 2.9-2.7 4.6-2.7 1.7 0 2.8.9 4.2.9 1.4 0 2.2-.9 4.2-.9 1.5 0 3 .8 4.1 2.1-3.6 2-3 7.1.6 8.4Z"></path>
+      </svg>
+    `;
+  default:
+    return `
+      <svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 14.5a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4Zm1.1-4.3h-2c0-2.8 3-2.8 3-4.6 0-1-.8-1.7-2-1.7-1.1 0-2 .6-2.7 1.5L8 7.1c1-1.4 2.4-2.2 4.2-2.2 2.4 0 4.1 1.4 4.1 3.5 0 2.8-3.2 3-3.2 4.8Z"></path>
+      </svg>
+    `;
+  }
+}
+
+function splitHostIdentity(hostname) {
+  const value = String(hostname || "-").trim() || "-";
+  const dot = value.indexOf(".");
+  if (dot > 0 && dot < value.length - 1) {
+    return {
+      user: value.slice(0, dot),
+      host: value.slice(dot + 1)
+    };
+  }
+
+  return {
+    user: "-",
+    host: value
+  };
+}
+
+function compactDate(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function renderRow(row) {
   const href = hostPageHref(row.stableId, row.connectionId, pageState.ctx?.project || "");
-  const deleteLabel = row.connected ? "Delete Client" : "Delete Offline Client";
   const selected = pageState.selectedRows.has(row.key);
   const running = pageState.runningRows.has(row.key);
   const execution = pageState.commandResults.get(row.key);
+  const platform = parsePlatform(row.version);
+  const identity = splitHostIdentity(row.hostname);
+  const sessionTime = row.dateAdded;
+  const ipTitle = [row.remoteAddr || row.ip, row.internalIp ? `internal ${row.internalIp}` : ""].filter(Boolean).join(" / ");
 
   return `
-    <article class="client-row client-row-hosts" data-open-shell="${escapeAttribute(href)}">
-      <div class="client-cell client-cell-select">
+    <article class="hosts-list-row ${row.connected ? "is-online" : "is-offline"} ${selected ? "is-selected" : ""}" data-host-row-key="${escapeAttribute(row.key)}" data-open-shell="${escapeAttribute(href)}" title="Right-click for host actions">
+      <div class="hosts-list-cell hosts-select-cell">
         <input type="checkbox" class="row-selector" aria-label="Select host ${escapeAttribute(row.hostname)}" data-select-row="${escapeAttribute(row.key)}" ${selected ? "checked" : ""}>
       </div>
-      <div class="client-cell client-cell-code">
-        <strong class="table-code-primary">${escapeHtml(row.connectionId || row.hostId)}</strong>
-        <span class="muted table-code-secondary">${escapeHtml(row.stableId)}</span>
+      <div class="hosts-list-cell hosts-os-cell">
+        <span class="os-icon os-${escapeAttribute(platform.os || "unknown")}" title="${escapeAttribute(platform.label)}">${osIconMarkup(platform.os)}</span>
       </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.hostname)}</strong>
-        <span class="muted">${escapeHtml(row.project || "Unassigned")}</span>
-        <span class="muted wrap-anywhere">${escapeHtml(row.tags.join(", ") || row.comment || "-")}</span>
+      <div class="hosts-list-cell table-code compact-value" title="${escapeAttribute(ipTitle)}">${escapeHtml(row.ip)}</div>
+      <div class="hosts-list-cell compact-value" title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.user)}</div>
+      <div class="hosts-list-cell hosts-name-cell">
+        <strong title="${escapeAttribute(row.hostname)}">${escapeHtml(identity.host)}</strong>
+        <span title="${escapeAttribute(row.connectionId || row.stableId)}">${escapeHtml(row.connectionId || row.stableId)}</span>
       </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.ip)}</strong>
-        <span class="muted wrap-anywhere">${escapeHtml(row.remoteAddr || "-")}</span>
-      </div>
-      <div class="client-cell">
-        <strong>${escapeHtml(row.platform)}</strong>
-        <span class="muted wrap-anywhere">${escapeHtml(row.version || "-")}</span>
-      </div>
-      <div class="client-cell">
-        <span>Added ${escapeHtml(formatDate(row.dateAdded))}</span>
-        <span class="muted">Last ${escapeHtml(formatDate(row.lastActivityAt))}</span>
-      </div>
-      <div class="client-cell client-cell-status">
-        <span class="status-pill ${row.connected ? "online" : "offline"}">
+      <div class="hosts-list-cell compact-value" title="${escapeAttribute(formatDate(sessionTime))}">${escapeHtml(compactDate(sessionTime))}</div>
+      <div class="hosts-list-cell hosts-status-cell">
+        <span class="hosts-status-text ${row.connected ? "online" : "offline"}">
           <span class="status-dot ${row.connected ? "online" : "offline"}"></span>${row.connected ? "Online" : "Offline"}
         </span>
-        <button class="ghost-button host-filesystem-button" type="button" data-open-filesystem="${escapeAttribute(row.key)}" ${row.connected ? "" : "disabled"}>Open file system</button>
       </div>
-      <div class="client-toolbar-slot client-toolbar-slot-select">
-        <a class="action-button action-link host-row-action" href="${escapeAttribute(href)}">Open Shell</a>
-      </div>
-      <div class="client-toolbar-slot client-toolbar-slot-id">
-        <button class="ghost-button host-row-action" data-copy-command="${escapeAttribute(command)}">Copy Connect Command</button>
-      </div>
-      <div class="client-toolbar-slot client-toolbar-slot-host">
-        <button class="danger-button host-row-action" data-delete-host="${escapeAttribute(row.stableId)}" data-hostname="${escapeAttribute(row.hostname)}" data-connected="${row.connected ? "true" : "false"}">${escapeHtml(deleteLabel)}</button>
-      </div>
-      ${running ? `<div class="client-toolbar-status"><span class="chip">Running command...</span></div>` : ""}
-      ${renderCommandResult(execution)}
+      ${running ? `<div class="hosts-row-running"><span class="chip">Running command...</span></div>` : ""}
+      ${renderCommandResult(execution, row.key)}
     </article>
   `;
 }
 
-function renderCommandResult(execution) {
+function renderCommandResult(execution, rowKey) {
   if (!execution) {
     return "";
   }
 
-  const status = execution.error
-    ? (execution.timedOut ? "Timed Out" : "Failed")
-    : "Completed";
-  const statusClass = execution.error ? "offline" : "online";
+  const status = execution.timedOut
+    ? "Timed out"
+    : (execution.error ? "Failed" : "Completed");
+  const statusClass = execution.error || execution.timedOut ? "offline" : "online";
+  const resultLabel = execution.kind === "module" ? "Module result" : "Command result";
 
-  let body = execution.output || "";
-  if (execution.error) {
-    body = body ? `${body}\n\n[error] ${execution.error}` : `[error] ${execution.error}`;
-  }
-  if (!body) {
-    body = "[no output]";
-  }
+  const body = executionOutputText(execution);
 
   return `
     <div class="client-command-result shell-panel">
       <div class="client-command-result-head">
         <div>
-          <p class="eyebrow">Command Result</p>
+          <p class="eyebrow">${escapeHtml(resultLabel)}</p>
           <h4>${escapeHtml(execution.command)}</h4>
         </div>
-        <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        <div class="client-command-result-actions">
+          <button class="ghost-button fs-small-button" type="button" data-copy-result="${escapeAttribute(rowKey)}">Copy output</button>
+          <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+        </div>
       </div>
       <pre class="output-block small-output">${escapeHtml(body)}</pre>
     </div>
   `;
+}
+
+function executionOutputText(execution) {
+  if (!execution) {
+    return "";
+  }
+
+  const bodyParts = [];
+  if (execution.output) {
+    bodyParts.push(execution.output);
+  }
+  if (execution.timedOut) {
+    bodyParts.push("[timed out]");
+  }
+  if (execution.truncated) {
+    bodyParts.push("[output truncated]");
+  }
+  if (execution.error) {
+    bodyParts.push(`[error] ${execution.error}`);
+  }
+  return bodyParts.join(bodyParts.length > 1 ? "\n\n" : "") || "[no output]";
+}
+
+async function copyExecutionResult(button) {
+  const rowKey = button.dataset.copyResult || "";
+  const execution = pageState.commandResults.get(rowKey);
+  if (!execution) {
+    return;
+  }
+
+  const original = button.textContent;
+  button.disabled = true;
+  try {
+    await copyText(executionOutputText(execution));
+    button.textContent = "Copied";
+  } catch (error) {
+    button.textContent = "Copy failed";
+  } finally {
+    window.setTimeout(() => {
+      button.textContent = original;
+      button.disabled = false;
+    }, 1000);
+  }
+}
+
+function openHostContextMenu(rowKey, x, y) {
+  const row = findRowByKey(rowKey);
+  if (!row) {
+    closeHostContextMenu();
+    return;
+  }
+
+  pageState.contextRowKey = row.key;
+  hostContextMenu.querySelectorAll("[data-context-action]").forEach((button) => {
+    const action = button.dataset.contextAction || "";
+    if (action === "filesystem") {
+      button.disabled = !row.connected;
+    } else {
+      button.disabled = false;
+    }
+  });
+
+  hostContextMenu.classList.remove("hidden");
+  hostContextMenu.setAttribute("aria-hidden", "false");
+  hostContextMenu.style.left = "0px";
+  hostContextMenu.style.top = "0px";
+
+  const rect = hostContextMenu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - rect.width - 12);
+  const top = Math.min(y, window.innerHeight - rect.height - 12);
+  hostContextMenu.style.left = `${Math.max(12, left)}px`;
+  hostContextMenu.style.top = `${Math.max(12, top)}px`;
+}
+
+function closeHostContextMenu() {
+  pageState.contextRowKey = "";
+  hostContextMenu.classList.add("hidden");
+  hostContextMenu.setAttribute("aria-hidden", "true");
+}
+
+async function handleHostContextAction(action) {
+  const row = findRowByKey(pageState.contextRowKey);
+  closeHostContextMenu();
+  if (!row) {
+    return;
+  }
+
+  switch (action) {
+  case "open":
+    window.location.href = hostPageHref(row.stableId, row.connectionId, pageState.ctx?.project || "");
+    return;
+  case "filesystem":
+    openFilesystemForRow(row.key);
+    return;
+  case "copy": {
+    const jumpTarget = buildJumpTarget(pageState.systemOptions, row.host, pageState.ctx?.user);
+    await copyText(hostCommandTemplates(row.host, row.connection, jumpTarget).ssh);
+    return;
+  }
+  case "select":
+    toggleRowSelection(row.key, !pageState.selectedRows.has(row.key));
+    renderHosts();
+    return;
+  case "delete":
+    requestDeleteHost(row);
+    return;
+  default:
+    return;
+  }
+}
+
+function findRowByKey(rowKey) {
+  return getClientRows(pageState.hosts).find((row) => row.key === rowKey) || null;
 }
 
 function toggleRowSelection(key, checked) {
@@ -402,7 +764,7 @@ function toggleRowSelection(key, checked) {
 }
 
 function toggleVisibleSelection(checked) {
-  filteredRows().forEach((row) => toggleRowSelection(row.key, checked));
+  sortedRows(filteredRows()).forEach((row) => toggleRowSelection(row.key, checked));
 }
 
 function syncVisibleSelectionToggle(rows) {
@@ -423,7 +785,399 @@ function syncBulkControls(rows) {
   selectVisibleHostsButton.disabled = rows.length === 0 || pageState.runningRows.size > 0;
   clearSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
   runSelectedHostsButton.disabled = selectedCount === 0 || pageState.runningRows.size > 0;
-  runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run On Selected";
+  runSelectedHostsButton.textContent = pageState.runningRows.size > 0 ? "Running..." : "Run selected";
+  syncBulkModuleControls();
+}
+
+function selectedHostRows() {
+  const rowMap = new Map(getClientRows(pageState.hosts).map((row) => [row.key, row]));
+  return [...pageState.selectedRows]
+    .map((key) => rowMap.get(key))
+    .filter(Boolean);
+}
+
+function firstSelectedOnlineRow() {
+  return selectedHostRows().find((row) => row.connected) || null;
+}
+
+function syncBulkModuleControls() {
+  if (!bulkModuleSelect || !runSelectedModuleButton || !refreshBulkModulesButton) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const onlineRows = selectedRows.filter((row) => row.connected);
+  const sourceRow = onlineRows[0] || null;
+  if (bulkModulePanel?.open && sourceRow && sourceRow.key !== pageState.bulkModules.loadedRowKey && !pageState.bulkModules.loading && !pageState.bulkModules.running) {
+    void loadBulkModules(true);
+  }
+  if (!onlineRows.length && pageState.bulkModules.items.length) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    syncBulkModuleHelp();
+  }
+
+  const selectedModule = bulkModuleSelect.value.trim();
+  const selectedManifest = pageState.bulkModules.items.find((module) => module.name === selectedModule);
+
+  refreshBulkModulesButton.disabled = onlineRows.length === 0 || pageState.bulkModules.loading || pageState.bulkModules.running;
+  bulkModuleSelect.disabled = pageState.bulkModules.loading || pageState.bulkModules.running || pageState.bulkModules.items.length === 0;
+  runSelectedModuleButton.disabled = (
+    selectedRows.length === 0 ||
+    !selectedModule ||
+    Boolean(selectedManifest?.disabled) ||
+    pageState.bulkModules.loading ||
+    pageState.bulkModules.running ||
+    pageState.runningRows.size > 0
+  );
+  refreshBulkModulesButton.textContent = pageState.bulkModules.loading ? "Loading..." : "Refresh modules";
+  runSelectedModuleButton.textContent = pageState.bulkModules.running ? "Running..." : "Run module";
+}
+
+async function loadBulkModules(force) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const row = firstSelectedOnlineRow();
+  if (!row) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput("Select at least one online host to load modules.");
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+    return;
+  }
+
+  if (!force && pageState.bulkModules.loadedRowKey === row.key && pageState.bulkModules.items.length) {
+    syncBulkModuleControls();
+    return;
+  }
+
+  pageState.bulkModules.loading = true;
+  pageState.bulkModules.error = "";
+  setBulkModuleOutput(`Loading modules from ${row.hostname || row.stableId}...`);
+  syncBulkModuleControls();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/${encodeURIComponent(row.stableId)}/modules?connectionId=${encodeURIComponent(row.connectionId || "")}`, pageState.ctx?.project || ""));
+    pageState.bulkModules.items = visibleWebModules(response.items || []).map((module) => moduleForRow(module, row));
+    pageState.bulkModules.loadedRowKey = row.key;
+    renderBulkModuleOptions(row);
+  } catch (error) {
+    pageState.bulkModules.items = [];
+    pageState.bulkModules.loadedRowKey = "";
+    bulkModuleSelect.innerHTML = "";
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.loading = false;
+    syncBulkModuleHelp();
+    syncBulkModuleControls();
+  }
+}
+
+function renderBulkModuleOptions(sourceRow) {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const modules = pageState.bulkModules.items;
+  const previous = bulkModuleSelect.value;
+  bulkModuleSelect.innerHTML = modules.map((module) => (
+    `<option value="${escapeAttribute(module.name || "")}" ${module.disabled ? "disabled" : ""}>${escapeHtml(module.name || "unnamed")}</option>`
+  )).join("");
+
+  const selected = modules.find((module) => module.name === previous && !module.disabled) || modules.find((module) => !module.disabled) || modules[0] || null;
+  if (selected) {
+    bulkModuleSelect.value = selected.name;
+  }
+
+  setBulkModuleOutput(modules.length ? "" : "No runnable web modules reported by the selected host.");
+}
+
+function syncBulkModuleHelp() {
+  if (!bulkModuleSelect || !bulkModuleHelpText) {
+    return;
+  }
+
+  const module = pageState.bulkModules.items.find((item) => item.name === bulkModuleSelect.value) || null;
+  const name = String(module?.name || "").toLowerCase();
+  const help = MODULE_FORM_HELP[name] || {};
+  bulkModuleHelpText.textContent = module ? (help.text || module.usage || "") : "";
+
+  if (bulkModuleArgsInput) {
+    bulkModuleArgsInput.placeholder = help.argsPlaceholder || "module arguments";
+  }
+  syncBulkModuleStdinFileField(name);
+}
+
+function syncBulkModuleStdinFileField(moduleName) {
+  const enabled = moduleUsesStdinFile(moduleName);
+  bulkModuleStdinFileField?.classList.toggle("hidden", !enabled);
+  if (!enabled && bulkModuleStdinFileInput) {
+    bulkModuleStdinFileInput.value = "";
+  }
+}
+
+function setBulkModuleOutput(message, type = "muted") {
+  if (!bulkModuleOutput) {
+    return;
+  }
+  bulkModuleOutput.textContent = message || "";
+  bulkModuleOutput.classList.toggle("error-text", type === "error");
+  bulkModuleOutput.classList.toggle("muted", type !== "error");
+}
+
+function visibleWebModules(modules) {
+  return (modules || []).filter((module) => !HIDDEN_WEB_MODULES.has(String(module?.name || "").toLowerCase()));
+}
+
+function moduleForRow(module, row) {
+  const platforms = supportedPlatformsForModule(module);
+  if (!platforms.length) {
+    return module;
+  }
+
+  const hostOS = parsePlatform(row?.version || "").os;
+  if (!hostOS || platforms.includes(hostOS)) {
+    return module;
+  }
+
+  return {
+    ...module,
+    disabled: true,
+    disabledReason: `Requires ${platforms.join(", ")} target; selected host is ${hostOS}.`
+  };
+}
+
+function supportedPlatformsForModule(module) {
+  const name = String(module?.name || "").toLowerCase();
+  if (CROSS_PLATFORM_MODULES[name]) {
+    return CROSS_PLATFORM_MODULES[name];
+  }
+  return (module?.platforms || []).map((platform) => String(platform || "").toLowerCase()).filter(Boolean);
+}
+
+async function runSelectedModuleOnHosts() {
+  if (!bulkModuleSelect || !bulkModuleOutput) {
+    return;
+  }
+
+  const selectedRows = selectedHostRows();
+  const moduleName = bulkModuleSelect.value.trim();
+  if (!selectedRows.length) {
+    setBulkModuleOutput("Select at least one host first.", "error");
+    return;
+  }
+  if (!moduleName) {
+    setBulkModuleOutput("Choose a module to run.", "error");
+    return;
+  }
+  if (HIDDEN_WEB_MODULES.has(moduleName.toLowerCase())) {
+    setBulkModuleOutput("This transport helper module is hidden from the web runner.", "error");
+    return;
+  }
+
+  const manifest = pageState.bulkModules.items.find((module) => module.name === moduleName) || null;
+  if (!manifest) {
+    setBulkModuleOutput("Refresh modules before running this module.", "error");
+    return;
+  }
+  if (manifest.disabled) {
+    setBulkModuleOutput(manifest.disabledReason || "This module is disabled by the selected host.", "error");
+    return;
+  }
+
+  let args = [];
+  try {
+    args = parseModuleArgs(bulkModuleArgsInput?.value || "");
+  } catch (error) {
+    setBulkModuleOutput(error.message, "error");
+    return;
+  }
+
+  let stdinBase64 = "";
+  const stdinFile = moduleUsesStdinFile(moduleName) ? (bulkModuleStdinFileInput?.files?.[0] || null) : null;
+  if (stdinFile) {
+    if (stdinFile.size > moduleStdinLimitBytes(moduleName)) {
+      setBulkModuleOutput(`Stdin file is too large. Maximum is ${moduleStdinLimitLabel(moduleName)}.`, "error");
+      return;
+    }
+    try {
+      stdinBase64 = await readFileAsBase64(stdinFile);
+    } catch (error) {
+      setBulkModuleOutput(error.message, "error");
+      return;
+    }
+  }
+
+  const command = moduleCommandLabel(moduleName, args);
+  const targetRows = [];
+  selectedRows.forEach((row) => {
+    const rowManifest = moduleForRow(manifest, row);
+    pageState.commandResults.delete(row.key);
+    if (rowManifest.disabled) {
+      pageState.commandResults.set(row.key, {
+        kind: "module",
+        command,
+        output: "",
+        error: rowManifest.disabledReason || "This module is not available for this host.",
+        timedOut: false,
+        truncated: false
+      });
+      return;
+    }
+    targetRows.push(row);
+  });
+
+  if (!targetRows.length) {
+    setBulkModuleOutput("No selected hosts can run this module.", "error");
+    renderHosts();
+    return;
+  }
+
+  pageState.bulkModules.running = true;
+  targetRows.forEach((row) => pageState.runningRows.add(row.key));
+  setBulkModuleOutput(`Running ${moduleName} on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}...`);
+  renderHosts();
+
+  try {
+    const response = await api(withProjectQuery(`/api/hosts/modules/${encodeURIComponent(moduleName)}/run`, pageState.ctx?.project || ""), {
+      method: "POST",
+      body: JSON.stringify({
+        targets: targetRows.map((row) => ({
+          stableId: row.stableId,
+          connectionId: row.connectionId || ""
+        })),
+        args,
+        stdin: "",
+        stdinBase64,
+        timeoutSeconds: numberFieldValue(bulkModuleTimeoutInput, 60),
+        outputLimitBytes: numberFieldValue(bulkModuleOutputLimitInput, 1024 * 1024)
+      })
+    });
+
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    for (const item of response.items || []) {
+      const key = item.key || `${item.stableId}:${item.connectionId || "offline"}`;
+      pageState.commandResults.set(key, {
+        kind: "module",
+        command,
+        output: item.output || "",
+        error: item.error || "",
+        timedOut: Boolean(item.timedOut),
+        truncated: Boolean(item.truncated)
+      });
+    }
+    setBulkModuleOutput(`Module ${moduleName} completed on ${targetRows.length} host${targetRows.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    targetRows.forEach((row) => pageState.runningRows.delete(row.key));
+    setBulkModuleOutput(error.message, "error");
+  } finally {
+    pageState.bulkModules.running = false;
+    renderHosts();
+  }
+}
+
+function moduleCommandLabel(moduleName, args) {
+  const suffix = args.length ? ` ${args.map((arg) => quoteModuleArg(arg)).join(" ")}` : "";
+  return `${moduleName}${suffix}`;
+}
+
+function quoteModuleArg(value) {
+  const arg = String(value || "");
+  if (!arg || /\s/.test(arg)) {
+    return `"${arg.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  }
+  return arg;
+}
+
+function moduleStdinLimitBytes(moduleName) {
+  const module = (pageState.bulkModules.items || []).find((item) => item.name === moduleName);
+  const limit = Number(module?.limits?.stdinBytes || 0);
+  if (limit > 0) {
+    return Math.min(limit, MAX_MODULE_STDIN_BYTES);
+  }
+  return MAX_MODULE_STDIN_BYTES;
+}
+
+function moduleUsesStdinFile(moduleName) {
+  return String(moduleName || "").toLowerCase() === "execass";
+}
+
+function moduleStdinLimitLabel(moduleName) {
+  const limit = moduleStdinLimitBytes(moduleName);
+  if (limit === MAX_MODULE_STDIN_BYTES) {
+    return MAX_MODULE_STDIN_LABEL;
+  }
+  return `${limit} bytes`;
+}
+
+async function readFileAsBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function parseModuleArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const char of String(raw || "")) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== "") {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("Unclosed quote in module args.");
+  }
+  if (current !== "") {
+    args.push(current);
+  }
+  return args;
+}
+
+function numberFieldValue(field, fallback) {
+  const value = Number(field?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function pruneRowState(rows) {
@@ -505,12 +1259,16 @@ async function deleteHost(button) {
   const stableId = button.dataset.deleteHost || "";
   const hostname = button.dataset.hostname || stableId;
   const connected = button.dataset.connected === "true";
-  if (!connected) {
-    openOfflineDeleteModal(stableId, hostname);
+  requestDeleteHost({ stableId, hostname, connected });
+}
+
+function requestDeleteHost(row) {
+  if (!row?.connected) {
+    openOfflineDeleteModal(row.stableId, row.hostname || row.stableId);
     return;
   }
 
-  openOnlineDeleteModal(stableId, hostname);
+  openOnlineDeleteModal(row.stableId, row.hostname || row.stableId);
 }
 
 function openOfflineDeleteModal(stableId, hostname) {
@@ -545,8 +1303,8 @@ function closeOfflineDeleteModal(force = false) {
   pageState.pendingOfflineDelete = null;
   offlineDeleteOverlay.classList.remove("visible");
   offlineDeleteError.textContent = "";
-  deleteOnlyOfflineButton.textContent = "Delete Only This Client";
-  deleteAllOfflineButton.textContent = "Delete All Offline Clients";
+  deleteOnlyOfflineButton.textContent = "Delete only this client";
+  deleteAllOfflineButton.textContent = "Delete all offline clients";
   deleteOnlyOfflineButton.disabled = false;
   deleteAllOfflineButton.disabled = false;
   cancelOfflineDeleteButton.disabled = false;
@@ -574,10 +1332,14 @@ async function deleteOfflineFromModal(mode) {
   deleteOnlyOfflineButton.disabled = true;
   deleteAllOfflineButton.disabled = true;
   cancelOfflineDeleteButton.disabled = true;
-  actionButton.textContent = mode === "all" ? "Deleting Offline Clients..." : "Deleting Client...";
+  actionButton.textContent = mode === "all" ? "Deleting offline clients..." : "Deleting client...";
 
   try {
-    await deleteHostRecords(stableIds);
+    if (mode === "all") {
+      await deleteAllOfflineHostRecords();
+    } else {
+      await deleteHostRecords(stableIds);
+    }
     closeOfflineDeleteModal(true);
     await refreshHostsAfterMutation();
   } catch (error) {
@@ -599,6 +1361,12 @@ async function deleteHostRecords(stableIds) {
       method: "DELETE"
     });
   }
+}
+
+async function deleteAllOfflineHostRecords() {
+  return api(withProjectQuery("/api/hosts/offline", pageState.ctx?.project || ""), {
+    method: "DELETE"
+  });
 }
 
 async function refreshHostsAfterMutation() {
@@ -638,7 +1406,7 @@ function closeOnlineDeleteModal(force = false) {
   pageState.pendingOnlineDelete = null;
   onlineDeleteOverlay.classList.remove("visible");
   onlineDeleteError.textContent = "";
-  confirmOnlineDeleteButton.textContent = "Delete Client";
+  confirmOnlineDeleteButton.textContent = "Delete client";
   confirmOnlineDeleteButton.disabled = false;
   cancelOnlineDeleteButton.disabled = false;
 }
@@ -652,7 +1420,7 @@ async function deleteOnlineFromModal() {
   onlineDeleteError.textContent = "";
   confirmOnlineDeleteButton.disabled = true;
   cancelOnlineDeleteButton.disabled = true;
-  confirmOnlineDeleteButton.textContent = "Deleting Client...";
+  confirmOnlineDeleteButton.textContent = "Deleting client...";
 
   try {
     await deleteHostRecords([pending.stableId]);
@@ -660,7 +1428,7 @@ async function deleteOnlineFromModal() {
     await refreshHostsAfterMutation();
   } catch (error) {
     onlineDeleteError.textContent = error.message;
-    confirmOnlineDeleteButton.textContent = "Delete Client";
+    confirmOnlineDeleteButton.textContent = "Delete client";
     confirmOnlineDeleteButton.disabled = false;
     cancelOnlineDeleteButton.disabled = false;
   }
@@ -759,6 +1527,42 @@ function selectFilesystemDirectory(remotePath) {
   }
   pageState.filesystem.selectedDirectory = node.path;
   renderFilesystem();
+}
+
+async function navigateFilesystemPath(event) {
+  event.preventDefault();
+
+  const path = normalizeFilesystemPath(filesystemPathInput.value);
+  if (!path) {
+    return;
+  }
+
+  let node = filesystemNode(path);
+  if (!node) {
+    node = ensureFilesystemDirectoryNode(path);
+  }
+
+  pageState.filesystem.selectedDirectory = node.path;
+  node.expanded = true;
+  node.loaded = false;
+  setFilesystemMessage("", "");
+  clearFilesystemPreview();
+  const lineage = filesystemPathLineage(node.path);
+  for (let index = 0; index < lineage.length; index++) {
+    const directory = lineage[index];
+    const directoryNode = ensureFilesystemDirectoryNode(directory);
+    directoryNode.expanded = true;
+    if (!directoryNode.loaded || directoryNode.path === node.path) {
+      await loadFilesystemDirectory(directoryNode.path);
+    } else {
+      renderFilesystem();
+    }
+    const currentNode = filesystemNode(directory);
+    const nextDirectory = lineage[index + 1];
+    if (currentNode && nextDirectory && !currentNode.error) {
+      linkFilesystemChild(currentNode, nextDirectory);
+    }
+  }
 }
 
 async function refreshSelectedFilesystemDirectory() {
@@ -944,10 +1748,58 @@ function filesystemNode(remotePath) {
   return pageState.filesystem.nodes.get(path);
 }
 
+function ensureFilesystemDirectoryNode(remotePath) {
+  const path = normalizeFilesystemPath(remotePath);
+  const existing = pageState.filesystem.nodes.get(path);
+  if (existing) {
+    return existing;
+  }
+
+  const node = {
+    path,
+    name: filesystemPathName(path),
+    type: "directory",
+    expanded: true,
+    loaded: false,
+    loading: false,
+    error: "",
+    items: []
+  };
+  pageState.filesystem.nodes.set(path, node);
+
+  const parent = filesystemParentPath(path);
+  if (parent && parent !== path) {
+    const parentNode = ensureFilesystemDirectoryNode(parent);
+    parentNode.expanded = true;
+    linkFilesystemChild(parentNode, path);
+  }
+
+  return node;
+}
+
+function linkFilesystemChild(parentNode, childPath) {
+  const path = normalizeFilesystemPath(childPath);
+  if (parentNode.items.some((item) => normalizeFilesystemPath(item.path) === path)) {
+    return;
+  }
+  const childNode = filesystemNode(path);
+  parentNode.items.push({
+    path,
+    name: childNode?.name || filesystemPathName(path),
+    type: "directory"
+  });
+}
+
 function normalizeFilesystemPath(remotePath) {
   const value = String(remotePath || "").trim().replaceAll("\\", "/");
   if (!value || value === ".") {
     return "/";
+  }
+  if (value === "~" || value === "~/") {
+    return "~";
+  }
+  if (value.startsWith("~/")) {
+    return value;
   }
   if (value.startsWith("/") && isWindowsDrivePath(value.slice(1))) {
     return normalizeWindowsDrivePath(value.slice(1));
@@ -956,6 +1808,49 @@ function normalizeFilesystemPath(remotePath) {
     return normalizeWindowsDrivePath(value);
   }
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+function filesystemPathName(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "/";
+  }
+  if (isWindowsDrivePath(value) && value.endsWith(":/")) {
+    return value;
+  }
+  const parts = value.split("/").filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
+
+function filesystemParentPath(path) {
+  const value = normalizeFilesystemPath(path);
+  if (value === "/") {
+    return "";
+  }
+  if (value === "~") {
+    return "/";
+  }
+  if (value.startsWith("~/")) {
+    const rest = value.slice(2).split("/").filter(Boolean);
+    return rest.length <= 1 ? "~" : `~/${rest.slice(0, -1).join("/")}`;
+  }
+  if (isWindowsDrivePath(value)) {
+    const slash = value.lastIndexOf("/");
+    return slash <= 2 ? "/" : value.slice(0, slash);
+  }
+  const slash = value.lastIndexOf("/");
+  return slash <= 0 ? "/" : value.slice(0, slash);
+}
+
+function filesystemPathLineage(path) {
+  const normalized = normalizeFilesystemPath(path);
+  const lineage = [];
+  let current = normalized;
+  while (current && current !== "/") {
+    lineage.unshift(current);
+    current = filesystemParentPath(current);
+  }
+  return lineage;
 }
 
 function filesystemRootNode(row) {
@@ -1019,6 +1914,7 @@ function renderFilesystem() {
   const root = filesystemNode("/");
   const selectedNode = filesystemNode(pageState.filesystem.selectedDirectory || "/");
   filesystemCurrentPath.textContent = filesystemDisplayPath(pageState.filesystem.selectedDirectory || "/");
+  filesystemPathInput.value = normalizeFilesystemPath(pageState.filesystem.selectedDirectory || "/");
   refreshFilesystemButton.disabled = !root;
   uploadFilesystemButton.disabled = !selectedNode || selectedNode.virtual;
   filesystemTree.innerHTML = root ? renderFilesystemNode(root, 0) : `<div class="fs-empty">File system is not initialized.</div>`;

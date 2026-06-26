@@ -68,7 +68,7 @@ func runWithWinPty(command string, connection ssh.Channel, reqs <-chan *ssh.Requ
 
 	options := winpty.Options{
 		Command:     path,
-		Env:         os.Environ(),
+		Env:         noHistoryEnv(os.Environ()),
 		InitialCols: ptyReq.Columns,
 		InitialRows: ptyReq.Rows,
 	}
@@ -80,6 +80,9 @@ func runWithWinPty(command string, connection ssh.Channel, reqs <-chan *ssh.Requ
 	}
 
 	log.Info("New winpty process  spawned")
+	if startup := noHistoryStartupCommand(command); startup != "" {
+		_, _ = fmt.Fprint(winpty, startup)
+	}
 
 	// Dynamically handle resizes of terminal window
 	go func() {
@@ -128,7 +131,7 @@ func runWithConpty(argv, command string, connection ssh.Channel, reqs <-chan *ss
 		path,
 		argvParts,
 		&syscall.ProcAttr{
-			Env: os.Environ(),
+			Env: noHistoryEnv(os.Environ()),
 		},
 	)
 	if err != nil {
@@ -156,6 +159,9 @@ func runWithConpty(argv, command string, connection ssh.Channel, reqs <-chan *ss
 	}()
 
 	// Link data streams of ssh session and conpty
+	if startup := noHistoryStartupCommand(command); startup != "" {
+		_, _ = cpty.InPipe().Write([]byte(startup))
+	}
 	go io.Copy(connection, cpty.OutPipe())
 	go io.Copy(cpty.InPipe(), connection)
 
@@ -170,6 +176,7 @@ func runWithConpty(argv, command string, connection ssh.Channel, reqs <-chan *ss
 func basicShell(connection ssh.Channel, reqs <-chan *ssh.Request, log logger.Logger) {
 
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-WindowStyle", "hidden", "-NoLogo")
+	cmd.Env = noHistoryEnv(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 
 		CreationFlags: syscall.STARTF_USESTDHANDLES,
@@ -197,6 +204,9 @@ func basicShell(connection ssh.Channel, reqs <-chan *ssh.Request, log logger.Log
 		log.Error("%s", err)
 		fmt.Fprint(connection, "Could not start powershell")
 
+	}
+	if startup := noHistoryStartupCommand("powershell.exe"); startup != "" {
+		_, _ = stdin.Write([]byte(startup))
 	}
 
 	go ssh.DiscardRequests(reqs)

@@ -24,6 +24,18 @@ func TestMakeTemplateShellQuotesDangerousValues(t *testing.T) {
 	if !strings.Contains(script, `download '/tmp/wrssh build'`) {
 		t.Fatalf("expected quoted working directory, got:\n%s", script)
 	}
+	if !strings.Contains(script, `command -v curl >/dev/null 2>&1`) {
+		t.Fatalf("expected POSIX shell curl check, got:\n%s", script)
+	}
+	if !strings.Contains(script, `setsid -f -- bash -c '(agent_path=$1; exec </dev/null >/dev/null 2>&1; for f in /proc/$$/fd/*; do n=${f##*/}; ((n>2)) && eval "exec $n>&-"; done; "$agent_path"; rm -f "$agent_path") & exit 0' bash "$agent_path"`) {
+		t.Fatalf("expected detached setsid launcher, got:\n%s", script)
+	}
+	if !strings.Contains(script, `run_agent '/tmp/wrssh build'/'agent'"'"';touch /tmp/pwn;#'`) {
+		t.Fatalf("expected quoted run path, got:\n%s", script)
+	}
+	if strings.Contains(script, `rm '/tmp/wrssh build'/'agent'"'"';touch /tmp/pwn;#'`) {
+		t.Fatalf("expected cleanup to stay inside run_agent, got:\n%s", script)
+	}
 }
 
 func TestMakeTemplatePythonQuotesDangerousValues(t *testing.T) {

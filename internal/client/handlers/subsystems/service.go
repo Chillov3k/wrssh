@@ -1,124 +1,86 @@
-//go:build windows
-
 package subsystems
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/NHAS/reverse_ssh/internal/terminal"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/sys/windows/svc/eventlog"
-	"golang.org/x/sys/windows/svc/mgr"
 )
 
-type service bool
+type serviceModule struct{}
 
-func (s *service) Execute(line terminal.ParsedLine, connection ssh.Channel, subsystemReq *ssh.Request) error {
-	subsystemReq.Reply(true, nil)
+func newServiceModule() Module {
+	return &serviceModule{}
+}
+
+func (s *serviceModule) Manifest() Manifest {
+	return Manifest{
+		Name:        "service",
+		Description: serviceDescription(),
+		Usage:       serviceUsage(),
+		Dangerous:   true,
+		Platforms:   servicePlatforms(),
+		Limits: ModuleLimits{
+			TimeoutSeconds: 30,
+			OutputBytes:    64 * 1024,
+			MaxArgs:        serviceMaxArgs(),
+		},
+	}
+}
+
+func (s *serviceModule) Run(ctx context.Context, _ ModuleIO, args []string) error {
+	line := terminal.ParseLine("service "+joinArgsForParse(args), 0)
 
 	name, err := line.GetArgString("name")
 	if err == terminal.ErrFlagNotSet {
-		name = "rssh"
+		name = defaultServiceName()
 	}
 
 	installPath, err := line.GetArgString("install")
 	if err != terminal.ErrFlagNotSet {
-		flagErr := err
-
-		currentPath, err := os.Executable()
-		if err != nil {
-			return errors.New("Unable to find the current binary location: " + err.Error())
+		resolvedPath, resolveErr := resolveServiceInstallPath(installPath, err)
+		if resolveErr != nil {
+			return resolveErr
 		}
-
-		//If no argument was supplied for install
-		if flagErr != nil {
-			installPath = currentPath
-
-		} else if installPath != currentPath {
-
-			input, err := ioutil.ReadFile(currentPath)
-			if err != nil {
-				return err
-			}
-
-			err = ioutil.WriteFile(installPath, input, 0644)
-			if err != nil {
-				return err
-			}
-
-		}
-
-		return s.installService(name, installPath)
+		return s.installService(ctx, name, resolvedPath)
 	}
 
 	if line.IsSet("uninstall") {
-		return s.uninstallService(name)
+		return s.uninstallService(ctx, name)
 	}
 
 	return errors.New(terminal.MakeHelpText(
 		map[string]string{
-			"name":      "Name of service to act on, defaults to 'rssh'",
-			"install":   "Optionally, when supplied an argument rssh will copy itself there",
-			"uninstall": "Will uninstall the service set by name",
+			"install":   "Install this client as an OS service; optional path copies the current executable there first",
+			"name":      "Service name; defaults to the platform default",
+			"uninstall": "Uninstall the service",
 		},
-		"service [MODE] [ARGS|...]",
-		"The service submodule can install or removed the rssh binary as a service",
+		serviceUsage(),
+		serviceHelpDescription(),
 	))
 }
 
-func (s *service) installService(name, location string) error {
-
-	m, err := mgr.Connect()
+func resolveServiceInstallPath(requestedPath string, requestErr error) (string, error) {
+	currentPath, err := os.Executable()
 	if err != nil {
-		return err
-	}
-	defer m.Disconnect()
-
-	newService, err := m.OpenService(name)
-	if err == nil {
-		newService.Close()
-		return fmt.Errorf("service %s already exists", name)
+		return "", errors.New("Unable to find the current binary location: " + err.Error())
 	}
 
-	newService, err = m.CreateService(name, location, mgr.Config{DisplayName: "", StartType: mgr.StartAutomatic})
+	if requestErr != nil {
+		return currentPath, nil
+	}
+	if requestedPath == currentPath {
+		return currentPath, nil
+	}
+
+	input, err := os.ReadFile(currentPath)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer newService.Close()
-	err = eventlog.InstallAsEventCreate(name, eventlog.Error|eventlog.Warning|eventlog.Info)
-	if err != nil {
-		newService.Delete()
-		return fmt.Errorf("SetupEventLogSource() failed: %s", err)
+	if err := os.WriteFile(requestedPath, input, serviceCopyMode()); err != nil {
+		return "", err
 	}
 
-	err = newService.Start()
-	if err != nil {
-		return fmt.Errorf("Starting rssh has failed: %s", err)
-	}
-	return nil
-
-}
-
-func (s *service) uninstallService(name string) error {
-	m, err := mgr.Connect()
-	if err != nil {
-		return err
-	}
-	defer m.Disconnect()
-	serviceToRemove, err := m.OpenService(name)
-	if err != nil {
-		return fmt.Errorf("service %s is not installed", name)
-	}
-	defer serviceToRemove.Close()
-	err = serviceToRemove.Delete()
-	if err != nil {
-		return err
-	}
-
-	eventlog.Remove(name)
-	return nil
-
+	return requestedPath, nil
 }

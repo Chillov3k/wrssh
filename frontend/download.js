@@ -31,12 +31,18 @@ const elements = {
   artifactDownloadUrl: document.getElementById("artifactDownloadUrl"),
   artifactLinks: document.getElementById("artifactLinks"),
   artifactAdminActions: document.getElementById("artifactAdminActions"),
-  deleteArtifactButton: document.getElementById("deleteArtifactButton")
+  deleteArtifactButton: document.getElementById("deleteArtifactButton"),
+  artifactDeleteOverlay: document.getElementById("artifactDeleteOverlay"),
+  artifactDeleteMessage: document.getElementById("artifactDeleteMessage"),
+  artifactDeleteError: document.getElementById("artifactDeleteError"),
+  confirmArtifactDeleteButton: document.getElementById("confirmArtifactDeleteButton"),
+  cancelArtifactDeleteButton: document.getElementById("cancelArtifactDeleteButton")
 };
 
 const pageState = {
   artifact: null,
-  ctx: null
+  ctx: null,
+  pendingArtifactDelete: null
 };
 
 elements.artifactLinks.addEventListener("click", async (event) => {
@@ -61,26 +67,79 @@ elements.deleteArtifactButton.addEventListener("click", async () => {
     return;
   }
 
-  const urlPath = pageState.artifact.urlPath;
-  if (!window.confirm(`Delete artifact ${urlPath}?`)) {
+  openArtifactDeleteModal(pageState.artifact.urlPath);
+});
+
+elements.artifactDeleteOverlay.addEventListener("click", (event) => {
+  if (event.target === elements.artifactDeleteOverlay) {
+    closeArtifactDeleteModal();
+  }
+});
+elements.cancelArtifactDeleteButton.addEventListener("click", () => closeArtifactDeleteModal());
+elements.confirmArtifactDeleteButton.addEventListener("click", deleteArtifactFromModal);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && elements.artifactDeleteOverlay.classList.contains("visible")) {
+    closeArtifactDeleteModal();
+  }
+});
+
+function openArtifactDeleteModal(urlPath) {
+  urlPath = String(urlPath || "").trim();
+  if (!urlPath) {
     return;
   }
 
-  const original = elements.deleteArtifactButton.textContent;
-  elements.deleteArtifactButton.disabled = true;
-  elements.deleteArtifactButton.textContent = "Deleting...";
+  pageState.pendingArtifactDelete = { urlPath };
+  elements.artifactDeleteError.textContent = "";
+  elements.artifactDeleteMessage.textContent = `Delete agent "${urlPath}" from project ${pageState.ctx?.project || "-"}?`;
+  elements.confirmArtifactDeleteButton.textContent = "Delete this agent";
+  elements.confirmArtifactDeleteButton.disabled = false;
+  elements.cancelArtifactDeleteButton.disabled = false;
+  elements.artifactDeleteOverlay.classList.add("visible");
+  elements.confirmArtifactDeleteButton.focus();
+}
+
+function closeArtifactDeleteModal(force = false) {
+  if (!elements.artifactDeleteOverlay.classList.contains("visible")) {
+    return;
+  }
+  if (!force && elements.cancelArtifactDeleteButton.disabled) {
+    return;
+  }
+
+  pageState.pendingArtifactDelete = null;
+  elements.artifactDeleteOverlay.classList.remove("visible");
+  elements.artifactDeleteError.textContent = "";
+  elements.confirmArtifactDeleteButton.textContent = "Delete this agent";
+  elements.confirmArtifactDeleteButton.disabled = false;
+  elements.cancelArtifactDeleteButton.disabled = false;
+}
+
+async function deleteArtifactFromModal() {
+  const urlPath = pageState.pendingArtifactDelete?.urlPath || "";
+  if (!urlPath) {
+    return;
+  }
+
+  elements.artifactDeleteError.textContent = "";
+  elements.confirmArtifactDeleteButton.disabled = true;
+  elements.cancelArtifactDeleteButton.disabled = true;
+  elements.confirmArtifactDeleteButton.textContent = "Deleting Agent...";
 
   try {
     await api(withProjectQuery(`/api/artifacts/${encodeURIComponent(urlPath)}`, pageState.ctx?.project || ""), {
       method: "DELETE"
     });
+    closeArtifactDeleteModal(true);
     window.location.href = viewHref("downloads", pageState.ctx?.project || "");
   } catch (error) {
-    elements.deleteArtifactButton.disabled = false;
-    elements.deleteArtifactButton.textContent = original;
-    window.alert(error.message);
+    elements.artifactDeleteError.textContent = error.message;
+    elements.confirmArtifactDeleteButton.textContent = "Delete this agent";
+    elements.confirmArtifactDeleteButton.disabled = false;
+    elements.cancelArtifactDeleteButton.disabled = false;
   }
-});
+}
 
 initPage({
   title: "Download Detail",
@@ -151,12 +210,10 @@ function renderArtifact() {
   elements.downloadBinaryLink.href = artifact.downloadUrl;
   elements.artifactDownloadUrl.textContent = artifact.downloadUrl || "-";
 
-  elements.artifactLinks.innerHTML = [
-    ["Binary URL", artifact.downloadUrl],
-    ["Bash", artifact.templateShellUrl],
-    ["Python", artifact.templatePythonUrl],
-    ["PowerShell", artifact.templatePs1Url]
-  ].filter(([, url]) => Boolean(url)).map(([label, url]) => renderArtifactLink(label, url)).join("");
+  elements.artifactLinks.innerHTML = artifactDownloadLinks(artifact).map(([label, url, command]) => renderArtifactLink(label, url, command ? {
+    displayText: command,
+    copyText: command
+  } : {})).join("");
 }
 
 function goarchLabel(artifact) {
@@ -169,4 +226,28 @@ function goarchLabel(artifact) {
   }
 
   return artifact.goarch;
+}
+
+function powerShellInlineCommand(url) {
+  const value = String(url || "").trim();
+  return value ? `iwr ${value} -UseBasicParsing | iex` : "";
+}
+
+function artifactDownloadLinks(artifact) {
+  const goos = String(artifact?.goos || "").toLowerCase();
+  const links = [
+    ["Binary URL", artifact.downloadUrl]
+  ];
+
+  if (goos !== "windows") {
+    links.push(["Bash", artifact.templateShellUrl]);
+  }
+
+  links.push(["Python", artifact.templatePythonUrl]);
+
+  if (goos === "windows") {
+    links.push(["PowerShell", artifact.templatePs1Url, powerShellInlineCommand(artifact.templatePs1Url)]);
+  }
+
+  return links.filter(([, url]) => Boolean(url));
 }

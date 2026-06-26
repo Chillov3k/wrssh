@@ -307,6 +307,8 @@ type Settings struct {
 	SNI         string
 
 	ProxyUseHostKerberos bool
+	NoHistorySave        bool
+	BusyBoxFallback      bool
 
 	VersionString string
 
@@ -335,6 +337,8 @@ func (s *Settings) SetNTLMProxyCreds(creds string) error {
 }
 
 func Run(settings *Settings) {
+	handlers.SetNoHistorySave(settings.NoHistorySave)
+	handlers.SetBusyBoxFallback(settings.BusyBoxFallback)
 
 	sshPriv, sysinfoError := keys.GetPrivateKey()
 	if sysinfoError != nil {
@@ -355,10 +359,10 @@ func Run(settings *Settings) {
 		l.Warning("Couldnt get username: %s", sysinfoError.Error())
 		username = "Unknown"
 	} else {
-		username = userInfo.Username
+		username = clientAccountName(userInfo.Username)
 	}
 
-	hostname, sysinfoError := os.Hostname()
+	hostname, sysinfoError := clientHostname()
 	if sysinfoError != nil {
 		hostname = "Unknown Hostname"
 		l.Warning("Couldnt get host name: %s", sysinfoError)
@@ -524,6 +528,7 @@ func Run(settings *Settings) {
 		}
 
 		log.Println("Successfully connnected", settings.Addr)
+		sendClientMetadata(sshConn)
 
 		go func() {
 
@@ -634,6 +639,37 @@ func Run(settings *Settings) {
 
 	}
 
+}
+
+func sendClientMetadata(conn ssh.Conn) {
+	internalIP := defaultRouteIP()
+	if internalIP == "" {
+		return
+	}
+
+	_, _, _ = conn.SendRequest(internal.ClientMetadataRequest, false, ssh.Marshal(internal.ClientMetadata{
+		InternalIP: internalIP,
+	}))
+}
+
+func clientAccountName(username string) string {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "Unknown"
+	}
+
+	if index := strings.LastIndexAny(username, `\/`); index >= 0 && index < len(username)-1 {
+		username = username[index+1:]
+	}
+	if index := strings.Index(username, "@"); index > 0 {
+		username = username[:index]
+	}
+
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "Unknown"
+	}
+	return username
 }
 
 var matchSchemeDefinition = regexp.MustCompile(`.*\:\/\/`)

@@ -136,7 +136,7 @@
             </div>
 
             <div id="artifactAdminActions" class="inline-actions hidden">
-              <button id="deleteArtifactButton" class="danger-button">Delete Artifact</button>
+              <button id="deleteArtifactButton" class="danger-button">Delete agent</button>
             </div>
           </div>
         </div>
@@ -160,6 +160,18 @@
         <button class="action-button" type="submit">Login</button>
       </form>
       <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="artifactDeleteOverlay" class="overlay">
+    <div class="overlay-card offline-delete-card">
+      <h2>Delete agent?</h2>
+      <p id="artifactDeleteMessage" class="muted"></p>
+      <div class="artifact-delete-actions">
+        <button id="confirmArtifactDeleteButton" class="danger-button" type="button">Delete agent</button>
+        <button id="cancelArtifactDeleteButton" class="ghost-button" type="button">Cancel</button>
+      </div>
+      <p id="artifactDeleteError" class="error-text"></p>
     </div>
   </div>
 

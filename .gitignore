@@ -28,6 +28,7 @@ e2e/authorized_controllee_keys
 !frontend/2.png
 todo.txt
 SUMMARY.md
+!/img/*
 README.webui.md
 LICENSE
 .github/*
