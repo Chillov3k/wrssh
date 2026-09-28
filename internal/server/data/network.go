@@ -175,3 +175,32 @@ func mergeNetworkPorts(existing string, incoming []string) string {
 	}
 	return strings.Join(ports, ",")
 }
+
+// DeleteNetworkDataForIPs removes the discovered nodes of the given IPs and
+// every edge that references them. Used when a host is deleted from the
+// project inventory so it disappears from the network map entirely.
+func DeleteNetworkDataForIPs(ips []string) error {
+	filtered := make([]string, 0, len(ips))
+	seen := map[string]struct{}{}
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		filtered = append(filtered, ip)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	return DB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("from_ip IN ? OR to_ip IN ?", filtered, filtered).Delete(&NetworkEdge{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("ip IN ?", filtered).Delete(&NetworkNode{}).Error
+	})
+}

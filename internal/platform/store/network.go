@@ -172,3 +172,33 @@ func mergeNetworkPortCSV(existing string, incoming []string) string {
 	}
 	return strings.Join(ports, ",")
 }
+
+// DeleteNetworkScanForIPs removes the discovered nodes of the given IPs and
+// every project edge referencing them, so a host deleted from the inventory
+// disappears from the network map entirely.
+func (s *Store) DeleteNetworkScanForIPs(project string, ips []string) error {
+	projectName := DisplayProjectName(project)
+	filtered := make([]string, 0, len(ips))
+	seen := map[string]struct{}{}
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		filtered = append(filtered, ip)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("project = ? AND (from_ip IN ? OR to_ip IN ?)", projectName, filtered, filtered).Delete(&NetworkScanEdgeRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("project = ? AND ip IN ?", projectName, filtered).Delete(&NetworkScanNodeRecord{}).Error
+	})
+}

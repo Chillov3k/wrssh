@@ -182,3 +182,20 @@ func (s *Server) handleDeleteNetworkNote(w http.ResponseWriter, r *http.Request)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+func (s *Server) handleDeleteNetworkNodes(w http.ResponseWriter, r *http.Request) {
+	request := struct {
+		IPs []string `json:"ips"`
+	}{}
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
+		return
+	}
+
+	if err := data.DeleteNetworkDataForIPs(request.IPs); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}

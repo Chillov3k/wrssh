@@ -701,6 +701,72 @@ func atoiSafe(value string) (int, bool) {
 	return result, true
 }
 
+// removeDeletedHostsFromNetworkMap drops the stored pscan discoveries of the
+// IPs that belonged to just-deleted hosts, so deleted clients disappear from
+// the map instead of lingering as gray "not captured" nodes. IPs still owned
+// by a remaining host record (same machine, other sessions) are kept.
+func (s *Server) removeDeletedHostsFromNetworkMap(ctx context.Context, projectName string, deleted []store.HostRecord) {
+	candidateIPs := make([]string, 0, len(deleted)*2)
+	for _, host := range deleted {
+		for _, ip := range []string{strings.TrimSpace(host.RemoteIP), strings.TrimSpace(host.InternalIP)} {
+			if ip != "" {
+				candidateIPs = append(candidateIPs, ip)
+			}
+		}
+	}
+	if len(candidateIPs) == 0 {
+		return
+	}
+
+	remaining, err := s.store.ListHostsForProject(projectName)
+	if err != nil {
+		log.Printf("[network-map] list remaining hosts for project %s: %v", projectName, err)
+		return
+	}
+	stillOwned := make(map[string]struct{}, len(remaining)*2)
+	for _, host := range remaining {
+		for _, ip := range []string{strings.TrimSpace(host.RemoteIP), strings.TrimSpace(host.InternalIP)} {
+			if ip != "" {
+				stillOwned[ip] = struct{}{}
+			}
+		}
+	}
+
+	orphans := make([]string, 0, len(candidateIPs))
+	seen := map[string]struct{}{}
+	for _, ip := range candidateIPs {
+		if _, owned := stillOwned[ip]; owned {
+			continue
+		}
+		if _, dup := seen[ip]; dup {
+			continue
+		}
+		seen[ip] = struct{}{}
+		orphans = append(orphans, ip)
+	}
+	if len(orphans) == 0 {
+		return
+	}
+
+	useRuntime, err := s.projectUsesRemoteRuntime(projectName)
+	if err != nil {
+		log.Printf("[network-map] resolve runtime for project %s: %v", projectName, err)
+		return
+	}
+	if useRuntime {
+		if _, ready, stateErr := s.projectRuntimeState(projectName); stateErr == nil && ready {
+			if err := s.runtimes.DeleteNetworkNodes(ctx, projectName, orphans); err != nil {
+				log.Printf("[network-map] delete nodes for project %s: %v", projectName, err)
+			}
+		}
+		return
+	}
+
+	if err := s.store.DeleteNetworkScanForIPs(projectName, orphans); err != nil {
+		log.Printf("[network-map] delete nodes for project %s: %v", projectName, err)
+	}
+}
+
 // recordPscanResults stores the discoveries of a finished pscan module run so
 // they render on the network map. Failures are logged and never fail the
 // module run itself.

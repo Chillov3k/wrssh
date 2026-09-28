@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /internal/network-map", s.handleClearNetworkMap)
 	mux.HandleFunc("PUT /internal/network-map/notes", s.handleUpsertNetworkNote)
 	mux.HandleFunc("DELETE /internal/network-map/notes/{noteID}", s.handleDeleteNetworkNote)
+	mux.HandleFunc("POST /internal/network-map/nodes/delete", s.handleDeleteNetworkNodes)
 	mux.HandleFunc("GET /internal/artifacts", s.handleArtifacts)
 	mux.HandleFunc("POST /internal/artifacts", s.handleCreateArtifact)
 	mux.HandleFunc("GET /internal/artifacts/{urlPath}", s.handleArtifact)

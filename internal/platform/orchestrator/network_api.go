@@ -46,3 +46,11 @@ func (m *Manager) UpsertNetworkNote(ctx context.Context, projectName string, not
 func (m *Manager) DeleteNetworkNote(ctx context.Context, projectName string, noteID uint64) error {
 	return m.runtimeJSON(ctx, projectName, http.MethodDelete, "/internal/network-map/notes/"+strconv.FormatUint(noteID, 10), nil, nil)
 }
+
+// DeleteNetworkNodes removes the discovered map nodes (and their edges) of
+// the given IPs from the project runtime.
+func (m *Manager) DeleteNetworkNodes(ctx context.Context, projectName string, ips []string) error {
+	return m.runtimeJSON(ctx, projectName, http.MethodPost, "/internal/network-map/nodes/delete", map[string]any{
+		"ips": ips,
+	}, nil)
+}
