@@ -235,6 +235,9 @@ This cleanup removes:
 - `/hosts?project=<name>`  
   Project hosts.
 
+- `/networkmap?project=<name>`  
+  Network map of the project: captured agent hosts and pscan-discovered hosts.
+
 - `/builds?project=<name>`  
   Build new clients for that specific project.
 

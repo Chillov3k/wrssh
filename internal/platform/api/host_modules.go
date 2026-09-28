@@ -112,10 +112,7 @@ func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := rssh.SubsystemExecutionOptions{
-		Timeout:          time.Duration(request.TimeoutSeconds) * time.Second,
-		OutputLimitBytes: request.OutputLimitBytes,
-	}
+	opts := moduleExecutionOptions(request.TimeoutSeconds, request.OutputLimitBytes)
 
 	sessionUID := s.startModuleSession(currentUser(r), target, "web-module", module, request.Args)
 	status := "completed"
@@ -142,6 +139,7 @@ func (s *Server) handleRunHostModule(w http.ResponseWriter, r *http.Request) {
 		status = "failed"
 		errText = err.Error()
 	}
+	s.recordPscanResults(r.Context(), target, module, result.Output)
 
 	response := map[string]any{
 		"output":    result.Output,
@@ -208,10 +206,7 @@ func (s *Server) handleRunHostsModule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	opts := rssh.SubsystemExecutionOptions{
-		Timeout:          time.Duration(request.TimeoutSeconds) * time.Second,
-		OutputLimitBytes: request.OutputLimitBytes,
-	}
+	opts := moduleExecutionOptions(request.TimeoutSeconds, request.OutputLimitBytes)
 
 	results := make([]runHostsModuleResult, len(request.Targets))
 	sem := make(chan struct{}, hostModuleConcurrency)
@@ -301,7 +296,23 @@ func (s *Server) runHostModuleTarget(r *http.Request, user store.WebUser, projec
 		status = "failed"
 		errText = result.Error
 	}
+	s.recordPscanResults(r.Context(), targetInfo, module, execution.Output)
 	return result
+}
+
+// moduleExecutionOptions maps the web request fields to subsystem options.
+// A timeout of zero or less means "no execution deadline at all" so long
+// scans (pscan with its own --max-duration) are only bounded by the HTTP
+// request lifetime.
+func moduleExecutionOptions(timeoutSeconds int, outputLimitBytes int64) rssh.SubsystemExecutionOptions {
+	timeout := time.Duration(timeoutSeconds) * time.Second
+	if timeoutSeconds <= 0 {
+		timeout = rssh.UnlimitedSubsystemTimeout
+	}
+	return rssh.SubsystemExecutionOptions{
+		Timeout:          timeout,
+		OutputLimitBytes: outputLimitBytes,
+	}
 }
 
 func decodeModuleStdin(text, encoded string) ([]byte, error) {

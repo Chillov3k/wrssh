@@ -71,7 +71,7 @@ func LoadDatabaseWithConfig(config DatabaseConfig) (err error) {
 		}
 	}
 
-	err = db.AutoMigrate(&Webhook{}, &Download{})
+	err = db.AutoMigrate(&Webhook{}, &Download{}, &NetworkNode{}, &NetworkEdge{}, &NetworkNote{})
 	if err != nil {
 		return err
 	}

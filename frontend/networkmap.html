@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSSH Admin Network Map</title>
+  <script src="theme-init.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-pending networkmap-page">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <h1>WRSSH</h1>
+
+      </div>
+
+      <div id="projectContext" class="project-context hidden">
+        <p class="eyebrow">Project</p>
+        <strong id="sidebarProjectName">-</strong>
+        <div id="sidebarProjectTags" class="tag-list"></div>
+        <a id="changeProjectLink" class="ghost-button action-link" href="projects">Change Project</a>
+      </div>
+
+      <nav class="nav-list">
+        <a class="nav-item" href="overview">Overview</a>
+        <a class="nav-item" href="hosts">Hosts</a>
+        <a class="nav-item active" href="networkmap">Network Map</a>
+        <a class="nav-item" href="builds">Builds</a>
+        <a class="nav-item" href="downloads">Downloads</a>
+        <a class="nav-item hidden" data-admin-only href="users">Manage Users</a>
+      </nav>
+
+      <div class="user-card">
+        <p class="user-card-title">Signed in as <strong id="currentUserName">-</strong></p>
+        <div class="user-card-actions">
+          <button id="editProfileButton" class="ghost-button" type="button">Edit</button>
+          <button id="logoutButton" class="ghost-button" type="button">Logout</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h2 id="viewTitle">Network Map</h2>
+          <p id="topbarMeta" class="topbar-meta muted">Waiting for initial sync</p>
+        </div>
+        <button id="refreshButton" class="action-button">Refresh</button>
+      </header>
+
+      <section class="page-body">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Topology</p>
+              <h3>Discovered network</h3>
+            </div>
+            <div class="map-header-actions">
+              <button id="fitMapButton" class="ghost-button" type="button">Standart view</button>
+            </div>
+          </div>
+
+          <div id="mapToolbar" class="map-toolbar">
+            <div class="map-toolbar-row">
+              <div id="groupFilter" class="segmented-filter map-group-filter" aria-label="Group hosts on the map">
+                <button class="segmented-filter-button is-active" type="button" data-group-mode="subnet">Subnet</button>
+                <button class="segmented-filter-button" type="button" data-group-mode="domain">Domain</button>
+                <button class="segmented-filter-button" type="button" data-group-mode="off">No groups</button>
+              </div>
+              <button id="addNoteButton" class="map-tool-button" type="button">+ Note</button>
+            </div>
+            <div class="map-legend">
+              <span class="map-legend-item"><span class="map-legend-dot is-online"></span>Host online</span>
+              <span class="map-legend-item"><span class="map-legend-dot is-offline"></span>Host offline</span>
+              <span class="map-legend-item"><span class="map-legend-dot is-unknown"><span>?</span></span>No info about host</span>
+            </div>
+          </div>
+
+          <div id="mapCanvasShell" class="map-canvas-shell">
+            <div id="mapEmptyState" class="empty-state hidden">
+              <p>No hosts on the map yet.</p>
+              <p class="muted">Capture a host with an agent, then run pscan from this page or the Hosts console to discover its network.</p>
+            </div>
+            <svg id="mapCanvas" class="map-canvas" role="img" aria-label="Network map graph">
+              <defs>
+                <marker id="mapArrowHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" class="map-arrow-head"></path>
+                </marker>
+                <marker id="mapArrowHeadActive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" class="map-arrow-head is-active"></path>
+                </marker>
+              </defs>
+              <g id="mapViewport">
+                <g id="mapGroups"></g>
+                <g id="mapEdges"></g>
+                <g id="mapNodes"></g>
+              </g>
+            </svg>
+            <div id="mapNotes" class="map-notes"></div>
+            <div id="mapNodePopover" class="map-node-popover hidden" role="tooltip">
+              <div class="map-node-popover-head">
+                <strong id="popoverTitle">-</strong>
+                <button id="popoverCopyButton" class="ghost-button" type="button">Copy</button>
+              </div>
+              <div id="popoverMeta" class="map-node-popover-meta muted"></div>
+              <pre id="popoverPorts" class="map-node-popover-ports"></pre>
+            </div>
+            <div id="mapZoomControls" class="map-zoom-controls">
+              <button id="zoomInButton" class="map-zoom-button" type="button" title="Zoom in" aria-label="Zoom in">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                  <line x1="15.6" y1="15.6" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                  <line x1="7.5" y1="10.5" x2="13.5" y2="10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                  <line x1="10.5" y1="7.5" x2="10.5" y2="13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                </svg>
+              </button>
+              <button id="zoomOutButton" class="map-zoom-button" type="button" title="Zoom out" aria-label="Zoom out">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                  <line x1="15.6" y1="15.6" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                  <line x1="7.5" y1="10.5" x2="13.5" y2="10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="hosts-console-panel">
+            <div class="hosts-console-head">
+              <div>
+                <p class="eyebrow">Console</p>
+                <h4>Run pscan</h4>
+              </div>
+              <span id="scanStateChip" class="chip hidden">Idle</span>
+            </div>
+            <div class="hosts-console-grid map-scan-grid">
+              <label class="field-stack">
+                <span>Scan from host</span>
+                <select id="scanHostSelect" class="search-input"></select>
+              </label>
+              <label class="field-stack">
+                <span>Targets</span>
+                <input id="scanTargetsInput" class="search-input" type="text" placeholder="192.168.1.0/24 or host,ip,cidr" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field-stack">
+                <span>Ports</span>
+                <input id="scanPortsInput" class="search-input" type="text" placeholder="default set" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field-stack map-scan-timeout">
+                <span>Timeout</span>
+                <input id="scanTimeoutInput" class="search-input" type="number" min="0" max="600" value="600" title="Seconds; 0 disables the timeout entirely">
+              </label>
+              <div class="bulk-exec-actions map-scan-actions">
+                <button id="runScanButton" class="action-button" type="button">Run scan</button>
+                <button id="clearMapButton" class="ghost-button" type="button">Clear scan data</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="overlay">
+    <div class="overlay-card">
+      <p class="eyebrow">Authenticate</p>
+      <h2>Sign in to RSSH admin</h2>
+      <form id="loginForm" class="login-form">
+        <label class="field-stack">
+          <span>Username</span>
+          <input id="loginUsername" type="text" autocomplete="username" required>
+        </label>
+        <label class="field-stack">
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="action-button" type="submit">Login</button>
+      </form>
+      <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="clearMapOverlay" class="overlay">
+    <div class="overlay-card offline-delete-card">
+      <p class="eyebrow">Network map</p>
+      <h2>Clear scan data</h2>
+      <p id="clearMapMessage" class="muted">This removes every pscan-discovered host and scan link from this project's network map. Captured agent hosts stay on the map.</p>
+      <div class="online-delete-actions">
+        <button id="confirmClearMapButton" class="danger-button" type="button">Clear scan data</button>
+        <button id="cancelClearMapButton" class="ghost-button" type="button">Cancel</button>
+      </div>
+      <p id="clearMapError" class="error-text"></p>
+    </div>
+  </div>
+
+  <script type="module" src="networkmap.js"></script>
+</body>
+</html>

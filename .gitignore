@@ -33,6 +33,7 @@ LICENSE
 .github/*
 .dockerignore
 !README.md
+.gocache
 coverage.out
 *.coverprofile
 *.prof
@@ -46,3 +47,4 @@ tmp/*
 .gocache/*
 api.md
 test-results/*
+*_test.go

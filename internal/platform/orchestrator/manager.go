@@ -30,6 +30,7 @@ type Manager struct {
 	store             *store.Store
 	docker            *DockerClient
 	httpClient        *http.Client
+	moduleHTTPClient  *http.Client
 	buildHTTPClient   *http.Client
 	fileHTTPClient    *http.Client
 	platformContainer string
@@ -53,6 +54,10 @@ func NewManager(ctx context.Context, cfg platformconfig.Config, appStore *store.
 		httpClient: &http.Client{
 			Timeout: time.Duration(cfg.RuntimeAPITimeout) * time.Second,
 		},
+		// Module runs (pscan & co) legitimately outlive the generic runtime
+		// API timeout; this client has no fixed deadline and is bounded only
+		// by the caller's request context.
+		moduleHTTPClient: &http.Client{},
 		buildHTTPClient: &http.Client{
 			Timeout: runtimeBuildAPITimeout,
 		},
@@ -477,6 +482,9 @@ func (m *Manager) ensureRuntimeResources(ctx context.Context, projectName string
 		"RUNTIME_AGENT_ADDR=:" + strconv.Itoa(runtime.AgentListenPort),
 		"RUNTIME_AGENT_TOKEN=" + agentToken,
 		"RUNTIME_PROJECT_NAME=" + projectName,
+		// Module runs with an unlimited timeout must not be cut off by the
+		// runtime agent HTTP write deadline.
+		"RUNTIME_HTTP_WRITE_TIMEOUT_SECONDS=0",
 	}
 	if strings.TrimSpace(m.cfg.SeedAuthorizedKeys) != "" {
 		runtimeEnv = append(runtimeEnv, "SEED_AUTHORIZED_KEYS="+m.cfg.SeedAuthorizedKeys)

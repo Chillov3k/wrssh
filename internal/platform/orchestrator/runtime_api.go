@@ -134,7 +134,9 @@ func (m *Manager) RunModule(ctx context.Context, projectName, connectionID, modu
 		Truncated bool   `json:"truncated"`
 		Error     string `json:"error"`
 	}{}
-	err := m.runtimeJSON(ctx, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "modules", url.PathEscape(module), "run"), map[string]any{
+	// The module client carries no fixed timeout: long scans with an
+	// unlimited module timeout are only bounded by this context.
+	err := m.runtimeJSONWithClient(ctx, m.moduleHTTPClient, projectName, http.MethodPost, path.Join("/internal/connections", url.PathEscape(connectionID), "modules", url.PathEscape(module), "run"), map[string]any{
 		"args":             args,
 		"stdinBase64":      base64.StdEncoding.EncodeToString(stdin),
 		"timeoutSeconds":   int(opts.Timeout.Seconds()),

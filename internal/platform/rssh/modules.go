@@ -19,6 +19,11 @@ const (
 	MaxSubsystemTimeout         = 10 * time.Minute
 	DefaultSubsystemOutputBytes = int64(1024 * 1024)
 	MaxSubsystemOutputBytes     = int64(4 * 1024 * 1024)
+
+	// UnlimitedSubsystemTimeout disables the execution deadline entirely (for
+	// example pscan runs bounded only by their own --max-duration). It is
+	// still cancelled when the calling HTTP request goes away.
+	UnlimitedSubsystemTimeout = -1
 )
 
 type ModuleLimits struct {
@@ -95,11 +100,14 @@ func (s *Service) executeSubsystem(ctx context.Context, client *ssh.ServerConn, 
 	if strings.ContainsAny(module, " \t\r\n") {
 		return SubsystemExecution{}, fmt.Errorf("module name must not contain whitespace")
 	}
-	if opts.Timeout <= 0 {
+	if opts.Timeout == 0 {
 		opts.Timeout = DefaultSubsystemTimeout
 	}
 	if opts.Timeout > MaxSubsystemTimeout {
 		return SubsystemExecution{}, fmt.Errorf("subsystem timeout exceeds maximum of %s", MaxSubsystemTimeout)
+	}
+	if opts.Timeout < 0 && opts.Timeout != UnlimitedSubsystemTimeout {
+		opts.Timeout = DefaultSubsystemTimeout
 	}
 	if opts.OutputLimitBytes <= 0 {
 		opts.OutputLimitBytes = DefaultSubsystemOutputBytes
@@ -108,8 +116,11 @@ func (s *Service) executeSubsystem(ctx context.Context, client *ssh.ServerConn, 
 		return SubsystemExecution{}, fmt.Errorf("subsystem output limit exceeds maximum of %d bytes", MaxSubsystemOutputBytes)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
 
 	channel, requests, err := client.OpenChannel("session", nil)
 	if err != nil {
