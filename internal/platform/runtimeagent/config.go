@@ -80,10 +80,10 @@ func LoadConfig() (Config, error) {
 		EnableTLS:             envBool("RSSH_TLS", true),
 		OpenProxy:             false,
 		Timeout:               defaultRuntimeRSSHTimeout,
-		ReadHeaderTimeoutSec:  defaultReadHeaderTimeoutSec,
-		ReadTimeoutSec:        defaultReadTimeoutSec,
-		WriteTimeoutSec:       defaultWriteTimeoutSec,
-		IdleTimeoutSec:        defaultIdleTimeoutSec,
+		ReadHeaderTimeoutSec:  envInt("RUNTIME_HTTP_READ_HEADER_TIMEOUT_SECONDS", defaultReadHeaderTimeoutSec),
+		ReadTimeoutSec:        envInt("RUNTIME_HTTP_READ_TIMEOUT_SECONDS", defaultReadTimeoutSec),
+		WriteTimeoutSec:       envInt("RUNTIME_HTTP_WRITE_TIMEOUT_SECONDS", defaultWriteTimeoutSec),
+		IdleTimeoutSec:        envInt("RUNTIME_HTTP_IDLE_TIMEOUT_SECONDS", defaultIdleTimeoutSec),
 	}
 
 	dataDir, err := filepath.Abs(cfg.DataDir)
@@ -98,8 +98,14 @@ func LoadConfig() (Config, error) {
 	if cfg.DBReadyTimeoutSeconds <= 0 || cfg.DBReadyPollSeconds <= 0 {
 		return Config{}, fmt.Errorf("runtime database wait settings must be greater than zero")
 	}
-	if cfg.ReadHeaderTimeoutSec <= 0 || cfg.ReadTimeoutSec <= 0 || cfg.WriteTimeoutSec <= 0 || cfg.IdleTimeoutSec <= 0 {
-		return Config{}, fmt.Errorf("runtime agent HTTP timeout settings must be greater than zero")
+	// Zero disables an HTTP server timeout; module runs with an unlimited
+	// timeout need RUNTIME_HTTP_WRITE_TIMEOUT_SECONDS=0 (set automatically
+	// by the orchestrator) so hour-long responses are not cut off.
+	if cfg.ReadHeaderTimeoutSec < 0 || cfg.ReadTimeoutSec < 0 || cfg.WriteTimeoutSec < 0 || cfg.IdleTimeoutSec < 0 {
+		return Config{}, fmt.Errorf("runtime agent HTTP timeout settings must not be negative")
+	}
+	if cfg.IdleTimeoutSec == 0 {
+		cfg.IdleTimeoutSec = defaultIdleTimeoutSec
 	}
 
 	return cfg, nil

@@ -112,7 +112,7 @@ func New(db *gorm.DB) (*Store, error) {
 		return nil, errors.New("nil db")
 	}
 
-	if err := db.AutoMigrate(&WebUser{}, &HostRecord{}, &SessionRecord{}, &ProjectRecord{}, &ArtifactProjectRecord{}, &HostProjectHintRecord{}, &ProjectRuntimeRecord{}, &ProjectRuntimeSecretRecord{}); err != nil {
+	if err := db.AutoMigrate(&WebUser{}, &HostRecord{}, &SessionRecord{}, &ProjectRecord{}, &ArtifactProjectRecord{}, &HostProjectHintRecord{}, &ProjectRuntimeRecord{}, &ProjectRuntimeSecretRecord{}, &NetworkScanNodeRecord{}, &NetworkScanEdgeRecord{}, &NetworkNoteRecord{}); err != nil {
 		return nil, err
 	}
 

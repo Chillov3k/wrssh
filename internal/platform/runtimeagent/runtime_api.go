@@ -187,8 +187,13 @@ func (s *Server) handleRunConnectionModule(w http.ResponseWriter, r *http.Reques
 	if len(stdinBytes) > 0 {
 		stdin = bytes.NewReader(stdinBytes)
 	}
+	// timeoutSeconds <= 0 disables the execution deadline entirely.
+	timeout := time.Duration(request.TimeoutSeconds) * time.Second
+	if request.TimeoutSeconds <= 0 {
+		timeout = rssh.UnlimitedSubsystemTimeout
+	}
 	result, err := s.service.ExecuteSubsystemOnConnection(r.Context(), connectionID, module, request.Args, stdin, rssh.SubsystemExecutionOptions{
-		Timeout:          time.Duration(request.TimeoutSeconds) * time.Second,
+		Timeout:          timeout,
 		OutputLimitBytes: request.OutputLimitBytes,
 	})
 	response := map[string]any{

@@ -71,6 +71,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/dashboard", s.requireUser(http.HandlerFunc(s.handleDashboard)))
 	mux.Handle("GET /api/system/options", s.requireUser(http.HandlerFunc(s.handleSystemOptions)))
 	mux.Handle("GET /api/hosts", s.requireUser(http.HandlerFunc(s.handleHosts)))
+	mux.Handle("GET /api/network-map", s.requireUser(http.HandlerFunc(s.handleNetworkMap)))
+	mux.Handle("DELETE /api/network-map", s.requireUser(http.HandlerFunc(s.handleDeleteNetworkMap)))
+	mux.Handle("PUT /api/network-map/notes", s.requireUser(http.HandlerFunc(s.handleUpsertNetworkNote)))
+	mux.Handle("DELETE /api/network-map/notes/{noteID}", s.requireUser(http.HandlerFunc(s.handleDeleteNetworkNote)))
 	mux.Handle("GET /api/hosts/{stableID}", s.requireUser(http.HandlerFunc(s.handleHost)))
 	mux.Handle("GET /api/hosts/{stableID}/filesystem", s.requireUser(http.HandlerFunc(s.handleHostFilesystem)))
 	mux.Handle("GET /api/hosts/{stableID}/filesystem/download", s.requireUser(http.HandlerFunc(s.handleHostFilesystemDownload)))
@@ -423,6 +427,8 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.removeDeletedHostsFromNetworkMap(r.Context(), host.Project, []store.HostRecord{host})
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"deleted":           true,
 		"stableId":          host.StableID,
@@ -454,6 +460,7 @@ func (s *Server) handleDeleteOfflineHosts(w http.ResponseWriter, r *http.Request
 	}
 
 	stableIDs := make([]string, 0, len(hosts))
+	deletedHosts := make([]store.HostRecord, 0, len(hosts))
 	for _, host := range filterHostsForWebUser(hosts, user) {
 		if !store.ProjectMatches(host.Project, projectName) || host.Connected {
 			continue
@@ -462,12 +469,16 @@ func (s *Server) handleDeleteOfflineHosts(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		stableIDs = append(stableIDs, host.StableID)
+		deletedHosts = append(deletedHosts, host)
 	}
 
 	deleted, err := s.store.DeleteHosts(stableIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if deleted > 0 {
+		s.removeDeletedHostsFromNetworkMap(r.Context(), projectName, deletedHosts)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
