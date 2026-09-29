@@ -54,6 +54,7 @@ func linkArgumentDescriptions() map[string]string {
 		"busybox-fallback":  "Embed a Linux BusyBox fallback for distroless targets where shell or common command executables are missing",
 		"pscan":             "Compile the optional TCP connect scanner module into the client",
 		"execass":           "Compile the optional Windows-only .NET execute-assembly module into the client",
+		"fury":              "Build the Fury implant (Rust) instead of the Go client (requires cargo with the windows-gnu targets installed)",
 		"use-kerberos":      "Instruct client to try and use kerberos ticket when using a proxy",
 		"log-level":         "Set default output logging levels, [INFO,WARNING,ERROR,FATAL,DISABLED]",
 		"ntlm-proxy-creds":  "Set NTLM proxy credentials in format DOMAIN\\USER:PASS",
@@ -74,6 +75,7 @@ func BuildOptionHelp() map[string]string {
 	keys := []string{
 		"shared-object",
 		"garble",
+		"fury",
 		"upx",
 		"lzma",
 		"raw-download",
@@ -163,6 +165,7 @@ func (l *link) Run(user *users.User, tty io.ReadWriter, line terminal.ParsedLine
 		UPX:             line.IsSet("upx"),
 		Lzma:            line.IsSet("lzma"),
 		Garble:          line.IsSet("garble"),
+		Fury:            line.IsSet("fury"),
 		DisableLibC:     line.IsSet("no-lib-c"),
 		UseKerberosAuth: line.IsSet("use-kerberos"),
 		RawDownload:     line.IsSet("raw-download"),

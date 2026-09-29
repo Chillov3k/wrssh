@@ -167,7 +167,7 @@ async function createArtifact(event) {
 
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
-  ["sharedObject", "garble", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback", "pscan", "execass"].forEach((key) => {
+  ["sharedObject", "garble", "fury", "upx", "lzma", "rawDownload", "useHostHeader", "noHistorySave", "busyBoxFallback", "pscan", "execass"].forEach((key) => {
     payload[key] = formData.get(key) === "on";
   });
   payload.buildTags = ["pscan", "execass"].filter((tag) => payload[tag]);
@@ -190,6 +190,16 @@ async function createArtifact(event) {
   if (payload.busyBoxFallback && payload.goos !== "linux") {
     output.textContent = "BusyBox fallback is only available for Linux artifacts.";
     return;
+  }
+  if (payload.fury) {
+    if (payload.garble || payload.sharedObject || payload.busyBoxFallback || payload.pscan || payload.execass) {
+      output.textContent = "Fury cannot be combined with Garble, shared object, BusyBox fallback, pscan or execass.";
+      return;
+    }
+    if (!["windows", "linux", "darwin"].includes(payload.goos)) {
+      output.textContent = "Fury supports Windows, Linux and macOS targets only.";
+      return;
+    }
   }
 
   output.textContent = "Building artifact...";

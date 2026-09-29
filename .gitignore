@@ -30,7 +30,8 @@ todo.txt
 SUMMARY.md
 !/img/*
 README.webui.md
-LICENSE
+LICENSE*
+COPYING*
 .github/*
 .dockerignore
 !README.md
@@ -49,3 +50,4 @@ tmp/*
 api.md
 test-results/*
 *_test.go
+FURY_WORK_SUMMARY.md

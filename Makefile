@@ -2,7 +2,7 @@ ifdef RSSH_HOMESERVER
 	LDFLAGS += -X main.destination=$(RSSH_HOMESERVER)
 endif
 
-.PHONY: debug release e2e client client_dll server platform runtime-agent docker-reset
+.PHONY: debug release e2e client client_dll fury server platform runtime-agent docker-reset
 
 ifdef RSSH_FINGERPRINT
 	LDFLAGS += -X main.fingerprint=$(RSSH_FINGERPRINT)
@@ -49,6 +49,31 @@ client_dll: .generate_keys
 	test -n "$(RSSH_HOMESERVER)" # Shared objects cannot take arguments, so must have a callback server baked in (define RSSH_HOMESERVER)
 	@CLIENT_KEY_B64="$$(base64 < internal/client/keys/private_key | tr -d '\n')"; \
 	CGO_ENABLED=1 go build $(BUILD_FLAGS) -tags=cshared -buildmode=c-shared -ldflags="$(LDFLAGS_RELEASE) -X github.com/NHAS/reverse_ssh/internal/client/keys.EmbeddedPrivateKeyBase64=$$CLIENT_KEY_B64" -o bin/client.dll ./cmd/client
+
+# Fury: the Rust implant. Opt-in via FURY=1; the Go client remains the
+# default everywhere. Optional: FURY_OS=windows FURY_ARCH=amd64 RSSH_HOMESERVER=host:port RSSH_FINGERPRINT=hex
+FURY_DIR := fury
+
+fury:
+ifndef FURY
+	@echo "Fury is opt-in: use 'make fury FURY=1 [FURY_OS=windows] [RSSH_HOMESERVER=host:port] [RSSH_FINGERPRINT=hex]'"
+	@exit 1
+endif
+	@cd $(FURY_DIR) && \
+	CLIENT_KEY_B64="$$(base64 < ../internal/client/keys/private_key | tr -d '\n')"; \
+	if [ "$(FURY_OS)" = "windows" ]; then \
+		TARGET="$(if $(filter $(FURY_ARCH),386),i686-pc-windows-gnu,$(if $(filter $(FURY_ARCH),arm64),aarch64-pc-windows-gnullvm,x86_64-pc-windows-gnu))"; \
+		BUILD_ARGS="--target $$TARGET"; OUT="target/$$TARGET/release/svc.exe"; DEST="../bin/fury_svc.exe"; \
+	else \
+		BUILD_ARGS=""; OUT="target/release/svc"; DEST="../bin/fury_svc"; \
+	fi; \
+	FURY_KEY_B64="$$CLIENT_KEY_B64" \
+	FURY_DEST="$(RSSH_HOMESERVER)" \
+	FURY_FINGERPRINT="$(RSSH_FINGERPRINT)" \
+	cargo build --release $$BUILD_ARGS $${FURY_CARGO_FLAGS:-} && \
+	python3 tools/postbuild.py "$$OUT" && \
+	mkdir -p ../bin && cp "$$OUT" "$$DEST"
+	@echo "Fury binary -> bin/"
 
 server:
 	mkdir -p bin

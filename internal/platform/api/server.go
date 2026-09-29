@@ -594,9 +594,10 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		SNI              string   `json:"sni"`
 		LogLevel         string   `json:"logLevel"`
 		WorkingDirectory string   `json:"workingDirectory"`
-		SharedObject     bool     `json:"sharedObject"`
-		Garble           bool     `json:"garble"`
-		UPX              bool     `json:"upx"`
+	SharedObject     bool     `json:"sharedObject"`
+	Garble           bool     `json:"garble"`
+	Fury             bool     `json:"fury"`
+	UPX              bool     `json:"upx"`
 		LZMA             bool     `json:"lzma"`
 		DisableLibC      bool     `json:"disableLibC"`
 		UseHostHeader    bool     `json:"useHostHeader"`
@@ -672,6 +673,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		UPX:               request.UPX,
 		Lzma:              request.LZMA,
 		Garble:            request.Garble,
+		Fury:              request.Fury,
 		DisableLibC:       request.DisableLibC,
 		RawDownload:       request.RawDownload,
 		UseHostHeader:     request.UseHostHeader,
