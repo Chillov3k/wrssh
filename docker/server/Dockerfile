@@ -43,10 +43,6 @@ RUN set -eu; \
     done; \
     rm -rf "$download_dir" /var/lib/apt/lists/*
 
-# Rust toolchain for Fury implant builds (see fury/README.md).
-# The linux/arm64 cross gcc is installed in the first apt block (it must be
-# resolved before the busybox multiarch/i386 packages trip apt up); if it is
-# missing, fury windows and native-linux builds still work fine.
 RUN set -eu; \
     curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal; \
     . "$HOME/.cargo/env"; \
@@ -61,10 +57,8 @@ RUN go install mvdan.cc/garble@v0.14.2
 ENV PATH="${PATH}:$(go env GOPATH)/bin"
 ENV GOTOOLCHAIN=go1.24.5+auto
 
-# Pre-fetch Fury dependencies so artifact builds work offline at runtime
 COPY fury/ ./fury/
-# fetch with RUSTFLAGS emptied: newer cargo probes rustc with build
-# rustflags for target info and chokes on the many remap-path-prefix flags
+
 RUN set -eu; \
     . "$HOME/.cargo/env"; \
     cd fury; \

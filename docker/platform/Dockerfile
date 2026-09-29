@@ -2,9 +2,6 @@ FROM golang:1.24.5-bullseye
 
 WORKDIR /app
 
-# bullseye is oldoldstable: the live security pool no longer matches its
-# InRelease (referenced package versions were removed, apt gets permanent
-# 404s). Pin apt to a debian snapshot so builds are reproducible.
 RUN set -eu; \
     snap="20260901T000000Z"; \
     echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$snap bullseye main" > /etc/apt/sources.list; \
