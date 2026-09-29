@@ -541,11 +541,24 @@ func usernameFromHostname(hostname string) string {
 }
 
 func parsePlatformVersion(version string) string {
-	match := platformVersionPattern.FindStringSubmatch(strings.TrimSpace(version))
-	if len(match) < 2 {
-		return ""
+	value := strings.TrimSpace(version)
+	match := platformVersionPattern.FindStringSubmatch(value)
+	if len(match) >= 2 {
+		return strings.ToLower(match[1])
 	}
-	return strings.ToLower(match[1])
+
+	// Agents with custom SSH identification strings do not carry the
+	// "-<os>_<arch>" suffix; fall back to sniffing the string itself.
+	lower := strings.ToLower(value)
+	for _, candidate := range []string{"windows", "linux", "darwin", "macos", "freebsd", "openbsd"} {
+		if strings.Contains(lower, candidate) {
+			if candidate == "macos" {
+				return "darwin"
+			}
+			return candidate
+		}
+	}
+	return ""
 }
 
 func resolveEndpoint(ip string, primaryIPByEndpoint map[string]string) string {

@@ -237,8 +237,23 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
     let mut config = client::Config::default();
     config.keepalive_interval = Some(std::time::Duration::from_secs(15));
     // default identification looks like a stock OpenSSH client instead of
-    // leaking the library name; an explicit --version-string still wins
-    config.client_id = russh::SshId::Standard(crate::ob!("SSH-2.0-OpenSSH_9.6").into());
+    // leaking the library name; the -<os>_<arch> suffix follows the Go client
+    // convention so the server can show the OS, and an explicit
+    // --version-string still wins
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "i686" | "i386" => "386",
+        other => other,
+    };
+    let base = crate::ob!("SSH-2.0-OpenSSH_9.6");
+    // Standard appends the RFC \r\n terminator; Raw sends the buffer as-is
+    // and breaks the server-side version line reader.
+    config.client_id = russh::SshId::Standard(format!("{base}-{os}_{arch}").into());
     if !cfg.version_string.is_empty() {
         let mut ver = cfg.version_string.clone();
         if !ver.starts_with("SSH-") {

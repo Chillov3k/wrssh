@@ -685,6 +685,13 @@ impl Session {
                     }
                     "shell" => {
                         let wants_reply = map_err!(u8::decode(&mut r))?;
+                        // reverse_ssh servers always attach a ShellStruct{cmd}
+                        // payload (an empty cmd is a bare u32 length prefix);
+                        // consume it instead of failing on the trailing bytes,
+                        // which would kill the whole session.
+                        if !r.is_empty() {
+                            let _shell_cmd = map_err!(String::decode(&mut r))?;
+                        }
                         map_err!(ensure_end(&r))?;
                         client
                             .server_shell_request(channel_num, wants_reply != 0, self)

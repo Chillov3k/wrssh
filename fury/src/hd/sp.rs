@@ -191,6 +191,11 @@ impl russh_sftp::server::Handler for FsSession {
             .map_err(|_| StatusCode::Failure)?;
         let mut buf = vec![0u8; len as usize];
         let n = f.read(&mut buf).await.map_err(|_| StatusCode::Failure)?;
+        if n == 0 {
+            // Reads at EOF must answer with SSH_FX_EOF; an empty DATA packet
+            // makes OpenSSH-style clients re-request the same range forever.
+            return Err(StatusCode::Eof);
+        }
         buf.truncate(n);
         Ok(russh_sftp::protocol::Data { id, data: buf })
     }

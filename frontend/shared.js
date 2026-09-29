@@ -783,7 +783,21 @@ export function groupHostsByProject(hosts) {
 export function parsePlatform(version) {
   const value = String(version || "").trim();
   const match = value.match(/-([A-Za-z0-9]+)_([A-Za-z0-9]+)$/);
-  if (!match) {
+  if (match) {
+    const os = match[1].toLowerCase();
+    const arch = normalizeArch(match[2]);
+    return {
+      os,
+      arch,
+      label: `${os} / ${arch}`
+    };
+  }
+
+  // Agents with custom SSH identification strings do not carry the
+  // "-<os>_<arch>" suffix; fall back to sniffing the string itself.
+  const lower = value.toLowerCase();
+  const os = ["windows", "linux", "darwin", "macos", "freebsd", "openbsd"].find((candidate) => lower.includes(candidate)) || "";
+  if (!os) {
     return {
       os: "",
       arch: "",
@@ -791,13 +805,25 @@ export function parsePlatform(version) {
     };
   }
 
-  const os = match[1].toLowerCase();
-  const arch = match[2].toLowerCase();
+  const arch = ["x86_64", "amd64", "x64", "arm64", "aarch64", "i686", "386"].find((candidate) => lower.includes(candidate)) || "";
   return {
-    os,
-    arch,
-    label: `${os} / ${arch}`
+    os: os === "macos" ? "darwin" : os,
+    arch: normalizeArch(arch),
+    label: `${os === "macos" ? "darwin" : os} / ${arch}`
   };
+}
+
+function normalizeArch(arch) {
+  switch (String(arch || "").toLowerCase()) {
+  case "x86_64":
+    return "amd64";
+  case "x64":
+    return "amd64";
+  case "i686":
+    return "386";
+  default:
+    return String(arch || "").toLowerCase();
+  }
 }
 
 export function osIconPath(os) {
