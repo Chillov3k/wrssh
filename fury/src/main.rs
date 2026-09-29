@@ -21,7 +21,42 @@ pub extern "C" fn _Unwind_Resume() -> ! {
     std::process::abort()
 }
 
+/// Re-launch ourselves fully detached (no console, own process group) so the
+/// process survives the launching shell closing and never opens a window on
+/// GUI launches. Mirrors the Go client's Fork().
+#[cfg(windows)]
+fn detach_restart() -> bool {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(std::env::args_os().skip(1))
+        // child marker so we do not fork-loop
+        .env("_", "1")
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    cmd.spawn().is_ok()
+}
+
+#[cfg(not(windows))]
+fn detach_restart() -> bool {
+    false
+}
+
 fn main() {
+    let is_child = std::env::var_os("_").is_some();
+    let wants_foreground = std::env::args().any(|a| a == "--foreground" || a == "-f");
+    if !is_child && !wants_foreground && detach_restart() {
+        std::process::exit(0);
+    }
+
     ev::init();
     #[cfg(feature = "debug-log")]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("russh=trace")).init();
