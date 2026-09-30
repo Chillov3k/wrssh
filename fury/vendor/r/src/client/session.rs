@@ -412,6 +412,20 @@ impl Session {
         Ok(())
     }
 
+    /// Sends an arbitrary global request with a pre-encoded payload. Used for
+    /// protocol extensions (e.g. reverse_ssh client metadata).
+    pub fn send_raw_global_request(&mut self, name: &str, data: &[u8], want_reply: bool) -> Result<(), crate::Error> {
+        if let Some(ref mut enc) = self.common.encrypted {
+            push_packet!(enc.write, {
+                msg::GLOBAL_REQUEST.encode(&mut enc.write)?;
+                name.encode(&mut enc.write)?;
+                (want_reply as u8).encode(&mut enc.write)?;
+                enc.write.extend(data);
+            });
+        }
+        Ok(())
+    }
+
     pub fn send_keepalive(&mut self, want_reply: bool) -> Result<(), crate::Error> {
         self.open_global_requests
             .push_back(crate::session::GlobalRequestResponse::Keepalive);

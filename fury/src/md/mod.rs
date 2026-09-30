@@ -200,8 +200,9 @@ impl<S: From<(russh::ChannelId, ChannelMsg)> + Send + Sync + 'static> ModuleIo<S
         };
         let mut out = Vec::new();
         while let Some(chunk) = rx.recv().await {
+            // channel_eof delivers an empty chunk as the EOF marker.
             if chunk.is_empty() {
-                continue;
+                break;
             }
             out.extend_from_slice(&chunk);
             if out.len() > cap {

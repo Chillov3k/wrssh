@@ -303,6 +303,18 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
     }
     dbg("auth ok, serving");
 
+    // Mirror the Go client: publish the default-route LAN address so the
+    // panel can show internal/external IPs and place the host on the map.
+    if let Some(internal) = crate::ip::internal_ip() {
+        let mut payload = Vec::new();
+        // SSH string: 4-byte length + body
+        payload.extend_from_slice(&(internal.len() as u32).to_be_bytes());
+        payload.extend_from_slice(internal.as_bytes());
+        let _ = handle
+            .raw_global_request(crate::ob!("wrssh-client-metadata"), payload, false)
+            .await;
+    }
+
     // Wait for the session task to end (disconnect etc.)
     let r = handle.await.map_err(|e| format!("session: {e}"));
     dbg("session ended");

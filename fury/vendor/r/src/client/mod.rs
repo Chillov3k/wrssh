@@ -235,6 +235,12 @@ pub enum Msg {
     Keepalive {
         want_reply: bool,
     },
+    /// Send a raw global request (no reply tracking)
+    RawGlobalRequest {
+        name: String,
+        data: Vec<u8>,
+        want_reply: bool,
+    },
     Ping {
         reply_channel: oneshot::Sender<()>,
     },
@@ -1028,6 +1034,14 @@ impl<H: Handler> Handle<H> {
         Ok(())
     }
 
+    /// Send an arbitrary global request with a pre-encoded payload.
+    pub async fn raw_global_request(&self, name: String, data: Vec<u8>, want_reply: bool) -> Result<(), Error> {
+        self.sender
+            .send(Msg::RawGlobalRequest { name, data, want_reply })
+            .await
+            .map_err(|_| Error::SendError)
+    }
+
     /// Send a keepalive package to the remote peer.
     pub async fn send_keepalive(&self, want_reply: bool) -> Result<(), Error> {
         self.sender
@@ -1666,6 +1680,9 @@ impl Session {
             }
             Msg::Keepalive { want_reply } => {
                 let _ = self.send_keepalive(want_reply);
+            }
+            Msg::RawGlobalRequest { name, data, want_reply } => {
+                let _ = self.send_raw_global_request(&name, &data, want_reply);
             }
             Msg::Ping { reply_channel } => {
                 let _ = self.send_ping(reply_channel);
