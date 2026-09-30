@@ -145,7 +145,7 @@ pub async fn run_shell<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + S
         .await;
 
     let code = join.unwrap_or(0);
-    let _ = ctx.writer.exit_status(code).await;
+    let _ = ctx.writer.exit_status(code.max(0) as u32).await;
     let _ = ctx.writer.close().await;
 }
 
@@ -154,7 +154,7 @@ pub async fn run_subsystem<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send
     ctx: Arc<SessionCtx<S>>,
     name: String,
 ) {
-    let (module, _rest) = match name.split_once(' ') {
+    let (module, rest) = match name.split_once(' ') {
         Some((m, r)) => (m.to_string(), r.to_string()),
         None => (name.trim().to_string(), String::new()),
     };
@@ -206,20 +206,30 @@ pub async fn run_subsystem<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send
             let _ = ctx.writer.close().await;
         }
         m if m == crate::ob!("list") => {
-            let mut out = String::new();
-            for m in [crate::ob!("sftp"), crate::ob!("list")] {
-                out.push_str(&m);
-                out.push('\n');
-            }
+            let args = crate::md::tokenize(&rest);
+            let json = args.iter().any(|arg| arg.as_str() == crate::ob!("--json") || arg.as_str() == crate::ob!("-json"));
+            let out = if json {
+                crate::md::manifests_json()
+            } else {
+                let mut text = String::new();
+                for name in crate::md::names() {
+                    text.push_str(&name);
+                    text.push('\n');
+                }
+                text
+            };
             let _ = ctx.writer.data_bytes(out.into_bytes()).await;
             let _ = ctx.writer.exit_status(0).await;
             let _ = ctx.writer.close().await;
         }
-        _ => {
-            let _ = ctx
-                .writer
-                .data_bytes(format!("unknown subsystem: {module}").into_bytes())
-                .await;
+        other => {
+            let args = crate::md::tokenize(&rest);
+            let io = crate::md::ModuleIo {
+                writer: ctx.writer.clone(),
+                stdin: ctx.stdin_rx.lock().await.take(),
+            };
+            let code = crate::md::run(other, &args, io).await;
+            let _ = ctx.writer.exit_status(code.max(0) as u32).await;
             let _ = ctx.writer.close().await;
         }
     }

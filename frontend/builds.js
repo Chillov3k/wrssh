@@ -192,8 +192,12 @@ async function createArtifact(event) {
     return;
   }
   if (payload.fury) {
-    if (payload.garble || payload.sharedObject || payload.busyBoxFallback || payload.pscan || payload.execass) {
-      output.textContent = "Fury cannot be combined with Garble, shared object, BusyBox fallback, pscan or execass.";
+    if (payload.garble || payload.sharedObject || payload.busyBoxFallback) {
+      output.textContent = "Fury cannot be combined with Garble, shared object or BusyBox fallback.";
+      return;
+    }
+    if (payload.execass && payload.goos !== "windows") {
+      output.textContent = "execass is a Windows-only fury module.";
       return;
     }
     if (!["windows", "linux", "darwin"].includes(payload.goos)) {

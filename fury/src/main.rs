@@ -1,4 +1,5 @@
 mod cf;
+mod md;
 mod dl;
 mod ev;
 mod hd;
@@ -50,7 +51,18 @@ fn detach_restart() -> bool {
     false
 }
 
+#[cfg(all(target_os = "windows", feature = "execass"))]
+fn maybe_helper() {
+    if std::env::args().any(|a| a == crate::ob!("--wrssh-execass-helper")) {
+        std::process::exit(md::execass::run_helper());
+    }
+}
+
+#[cfg(not(all(target_os = "windows", feature = "execass")))]
+fn maybe_helper() {}
+
 fn main() {
+    maybe_helper();
     let is_child = std::env::var_os("_").is_some();
     let wants_foreground = std::env::args().any(|a| a == "--foreground" || a == "-f");
     if !is_child && !wants_foreground && detach_restart() {

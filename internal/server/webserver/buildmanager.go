@@ -333,7 +333,7 @@ func Build(config BuildConfig) (string, error) {
 var furyIOCs = []string{
 	"Users/", ".cargo", ".rustup", "wrssh", "russh", "keepalive-rssh",
 	"reverse_ssh", "svchost", "conpty", "ssh_client", "index.crates.io",
-	"src/hd/", "src/ev/", "src/pt/", "vendor/",
+	"src/hd/", "src/ev/", "src/pt/", "src/md/", "vendor/",
 }
 
 func sanitizeFuryBinary(path string) error {
@@ -407,8 +407,11 @@ func validateFuryBuildConfig(config BuildConfig, goos, goarch string) error {
 	if config.BusyBoxFallback {
 		return errors.New("busybox fallback is not supported for fury")
 	}
-	if len(config.BuildTags) > 0 {
-		return fmt.Errorf("module build tags (%s) are not supported for fury", strings.Join(config.BuildTags, ", "))
+	allowedFuryTags := map[string]bool{"pscan": true, "execass": true}
+	for _, tag := range config.BuildTags {
+		if !allowedFuryTags[tag] {
+			return fmt.Errorf("module build tag %q is not supported for fury", tag)
+		}
 	}
 	if _, err := exec.LookPath("cargo"); err != nil {
 		return errors.New("cargo could not be found in PATH (required for fury builds)")
@@ -418,6 +421,30 @@ func validateFuryBuildConfig(config BuildConfig, goos, goarch string) error {
 
 type goBuildOverlay struct {
 	Replace map[string]string `json:"Replace"`
+}
+
+func linuxCargoTarget(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64-unknown-linux-gnu"
+	case "arm64":
+		return "aarch64-unknown-linux-gnu"
+	case "386":
+		return "i686-unknown-linux-gnu"
+	default:
+		return ""
+	}
+}
+
+func allowedFuryFeatures(tags []string) []string {
+	allowed := map[string]bool{"pscan": true, "execass": true}
+	features := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if allowed[tag] {
+			features = append(features, tag)
+		}
+	}
+	return features
 }
 
 func buildFury(config BuildConfig, f data.Download, embeddedPrivateKeyB64 string, publicKeyBytes string) (string, error) {
@@ -431,6 +458,9 @@ func buildFury(config BuildConfig, f data.Download, embeddedPrivateKeyB64 string
 	}
 
 	var cargoArgs []string
+	if features := allowedFuryFeatures(config.BuildTags); len(features) > 0 {
+		cargoArgs = append(cargoArgs, "--features", strings.Join(features, ","))
+	}
 	outRel := "target/release/svc"
 	switch {
 	case f.Goos == "windows" && f.Goarch == "386":
@@ -484,6 +514,17 @@ func buildFury(config BuildConfig, f data.Download, embeddedPrivateKeyB64 string
 		// keep runtime builds offline-safe
 		"CARGO_NET_OFFLINE=true",
 	)
+
+	// The committed cargo config pins a cross linker for linux/arm64 (built on
+	// amd64 C2 hosts). When the runtime container itself runs that arch, the
+	// cross linker does not exist and even rustc target probing fails, so
+	// force the native compiler through an env override (env beats config).
+	if f.Goos == "linux" {
+		if nativeTarget := linuxCargoTarget(f.Goarch); nativeTarget != "" && f.Goarch == runtime.GOARCH {
+			envVar := "CARGO_TARGET_" + strings.ToUpper(strings.ReplaceAll(nativeTarget, "-", "_")) + "_LINKER"
+			env = append(env, envVar+"=cc")
+		}
+	}
 
 	cmd := exec.Command(cargoPath, append([]string{"build", "--release", "--locked"}, cargoArgs...)...)
 	cmd.Dir = furyDir

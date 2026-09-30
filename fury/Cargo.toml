@@ -24,6 +24,8 @@ conpty = "0.7"
 [features]
 default = []
 debug-log = ["dep:env_logger"]
+pscan = []
+execass = []
 
 [profile.release]
 opt-level = "z"
