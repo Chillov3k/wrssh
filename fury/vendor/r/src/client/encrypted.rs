@@ -817,7 +817,14 @@ impl Session {
                 let req = map_err!(String::decode(&mut r))?;
                 let wants_reply = map_err!(u8::decode(&mut r))?;
                 if let Some(ref mut enc) = self.common.encrypted {
-                    if req.starts_with("keepalive") {
+                    if req == "kill" {
+                        map_err!(ensure_end(&r))?;
+                        if wants_reply == 1 {
+                            self.common.wants_reply = false;
+                            push_packet!(enc.write, enc.write.push(msg::REQUEST_SUCCESS));
+                        }
+                        return client.server_kill_request(self).await;
+                    } else if req.starts_with("keepalive") {
                         // reverse_ssh servers send an optional payload
                         // (the timeout value) with their custom keepalive;
                         // consume it if present instead of failing.

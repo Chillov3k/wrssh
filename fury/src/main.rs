@@ -1,9 +1,7 @@
 mod cf;
-mod md;
 mod dl;
 mod ev;
 mod hd;
-mod ip;
 mod ky;
 mod ob;
 mod pr;
@@ -23,9 +21,6 @@ pub extern "C" fn _Unwind_Resume() -> ! {
     std::process::abort()
 }
 
-/// Re-launch ourselves fully detached (no console, own process group) so the
-/// process survives the launching shell closing and never opens a window on
-/// GUI launches. Mirrors the Go client's Fork().
 #[cfg(windows)]
 fn detach_restart() -> bool {
     use std::os::windows::process::CommandExt;
@@ -52,18 +47,7 @@ fn detach_restart() -> bool {
     false
 }
 
-#[cfg(all(target_os = "windows", feature = "execass"))]
-fn maybe_helper() {
-    if std::env::args().any(|a| a == crate::ob!("--wrssh-execass-helper")) {
-        std::process::exit(md::execass::run_helper());
-    }
-}
-
-#[cfg(not(all(target_os = "windows", feature = "execass")))]
-fn maybe_helper() {}
-
 fn main() {
-    maybe_helper();
     let is_child = std::env::var_os("_").is_some();
     let wants_foreground = std::env::args().any(|a| a == "--foreground" || a == "-f");
     if !is_child && !wants_foreground && detach_restart() {

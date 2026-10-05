@@ -51,3 +51,8 @@ api.md
 test-results/*
 *_test.go
 FURY_WORK_SUMMARY.md
+bin/server_test.exe
+fury/src/bin/
+tmp/kestest/
+tmp/kesjump/
+tmp/jumpscan/

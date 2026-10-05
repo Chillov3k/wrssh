@@ -42,8 +42,6 @@ const confirmClearMapButton = byId("confirmClearMapButton");
 const cancelClearMapButton = byId("cancelClearMapButton");
 const clearMapError = byId("clearMapError");
 
-// Monitor icon geometry. The node group origin (0,0) sits between the monitor
-// base and the text block; the icon spans y -52..4.
 const NODE_ICON_WIDTH = 66;
 const NODE_ICON_HEIGHT = 56;
 const NODE_ICON_CENTER_Y = -32;
@@ -55,7 +53,6 @@ const OS_ICON_SIZE = 26;
 const GROUP_PAD_X = 18;
 const GROUP_PAD_TOP = 46;
 const GROUP_PAD_BOTTOM = 14;
-// Visual extents of one node around its position point (monitor plus labels).
 const NODE_EXTENT_HALF_W = 72;
 const NODE_EXTENT_TOP = -58;
 const NODE_EXTENT_BOTTOM = 58;
@@ -286,6 +283,10 @@ zoomOutButton.addEventListener("click", () => {
 runScanButton.addEventListener("click", () => {
   void runScan();
 });
+scanPortsInput.addEventListener("input", () => {
+  scanPortsInput.dataset.touched = "1";
+});
+
 scanTargetsInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -325,9 +326,6 @@ initPage({
   console.error(error);
 });
 
-// ---------------------------------------------------------------------------
-// Data loading
-// ---------------------------------------------------------------------------
 
 async function refreshAll(keepView = true) {
   const [hosts, map] = await Promise.all([
@@ -362,7 +360,16 @@ function findNode(ip) {
   return pageState.map.nodes.find((node) => node.ip === ip) || null;
 }
 
+const MAP_SCAN_DEFAULT_PORTS = "21,22,23,25,53,80,88,135,139,443,445,3389,5985,5986,8080,8443";
+
+function applyMapScanPortsDefault() {
+  if (!scanPortsInput.value.trim() && !scanPortsInput.dataset.touched) {
+    scanPortsInput.value = MAP_SCAN_DEFAULT_PORTS;
+  }
+}
+
 function renderScanHostOptions() {
+  applyMapScanPortsDefault();
   const onlineHosts = clientRows().filter((row) => row.connected);
   const previous = scanHostSelect.value;
   scanHostSelect.innerHTML = onlineHosts.length
@@ -401,9 +408,6 @@ function clientRows() {
   return rows;
 }
 
-// ---------------------------------------------------------------------------
-// Graph rendering
-// ---------------------------------------------------------------------------
 
 function renderMap(keepView = true) {
   const nodes = pageState.map.nodes;
@@ -466,8 +470,6 @@ function renderNode(node) {
   group.setAttribute("class", nodeClass(node));
   group.dataset.mapNode = node.ip;
 
-  // Monitor: screen sits on a stand neck and a base, all connected.
-  // Origin (0,0) is just below the base; screen spans y -52..-12.
   group.innerHTML = `
     <rect class="map-node-hit" x="${-NODE_HIT_WIDTH / 2}" y="${-NODE_HIT_HEIGHT + 24}" width="${NODE_HIT_WIDTH}" height="${NODE_HIT_HEIGHT}"></rect>
     <g class="map-node-device">
@@ -537,8 +539,6 @@ function syncEdgeHighlight() {
   });
 }
 
-// nodePortsText renders every known open port of a node, one per line, for
-// the hover popover and the copy button.
 function nodePortsText(node) {
   if (!node.ports || !node.ports.length) {
     return "";
@@ -549,9 +549,6 @@ function nodePortsText(node) {
     .join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Node hover popover
-// ---------------------------------------------------------------------------
 
 function showNodePopover(ip) {
   const node = findNode(ip);
@@ -630,9 +627,6 @@ function hideNodePopover() {
   mapNodePopover.classList.add("hidden");
 }
 
-// ---------------------------------------------------------------------------
-// Grouping
-// ---------------------------------------------------------------------------
 
 function readStoredGrouping() {
   try {
@@ -672,7 +666,6 @@ function syncGroupFilterButtons() {
   });
 }
 
-// subnetKey groups IPv4 nodes by their /24 network.
 function subnetKey(ip) {
   const parts = String(ip || "").split(".");
   if (parts.length === 4 && parts.every((part) => /^\d+$/.test(part))) {
@@ -681,10 +674,6 @@ function subnetKey(ip) {
   return "IPv6";
 }
 
-// domainKey groups domain-joined hosts (windows domains, freeipa) by their
-// DNS zone: the last three labels of the full hostname, which drops the
-// rssh username and the computer label, e.g.
-// "john.pc1.office.corp.local" -> "office.corp.local".
 function domainKey(node) {
   const labels = String(node.hostname || "").split(".").filter(Boolean);
   if (labels.length < 3) {
@@ -779,14 +768,7 @@ function groupBoundingBox(nodes) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
 
-// computeLayout arranges nodes in a structured grid per group so the map
-// reads as tidy rectangles instead of a random scatter. Positions of known
-// nodes are preserved across refreshes; a full re-layout (mode switch or
-// first render) rebuilds the grid.
 function computeLayout(keepView) {
   const nodes = pageState.map.nodes;
   if (!nodes.length) {
@@ -802,7 +784,6 @@ function computeLayout(keepView) {
   const positions = new Map(pageState.positions);
   const groups = collectGroups();
 
-  // New nodes join their group next to existing members.
   nodes.forEach((node) => {
     if (positions.has(node.ip)) {
       return;
@@ -822,7 +803,6 @@ function computeLayout(keepView) {
     });
   });
 
-  // Drop positions of nodes that no longer exist.
   const live = new Set(nodes.map((node) => node.ip));
   positions.forEach((_, ip) => {
     if (!live.has(ip)) {
@@ -851,8 +831,6 @@ function groupAnchor(group, positions) {
   return { x: 0, y: 0 };
 }
 
-// structuredLayout builds a deterministic tidy grid: every group becomes a
-// wrapped block of node cells, and blocks are laid out left to right.
 function structuredLayout(nodes) {
   const positions = new Map();
 
@@ -914,9 +892,6 @@ function structuredLayout(nodes) {
   return positions;
 }
 
-// ---------------------------------------------------------------------------
-// Pan / zoom
-// ---------------------------------------------------------------------------
 
 function applyTransform() {
   const { x, y, k } = pageState.transform;
@@ -1088,9 +1063,6 @@ function cssEscape(value) {
   return String(value).replace(/([^a-zA-Z0-9_-])/g, "\\$1");
 }
 
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
 
 function renderNotes() {
   const focused = document.activeElement?.closest?.("[data-map-note]");
@@ -1103,7 +1075,6 @@ function renderNotes() {
     const id = String(note.id);
     let element = existing.get(id);
     if (id === keepID && element) {
-      // Never clobber the note being edited or dragged right now.
       element.style.left = `${note.x}px`;
       element.style.top = `${note.y}px`;
       if (!element.classList.contains("is-dragging") && !element.classList.contains("is-resizing")) {
@@ -1152,8 +1123,6 @@ function makeNoteElement(note) {
   return element;
 }
 
-// Word-style notes: plain text at rest, right-click to enter edit mode with
-// the frame, font controls, and the resize handle.
 function enterNoteEdit(element) {
   if (pageState.editingNoteID && pageState.editingNoteID !== element.dataset.mapNote) {
     const previous = mapNotes.querySelector(`[data-map-note="${cssEscape(pageState.editingNoteID)}"]`);
@@ -1277,8 +1246,6 @@ function moveNoteDrag(event) {
   drag.element.style.height = `${Math.max(NOTE_MIN_H, drag.originH + dy)}px`;
 }
 
-// clampNotePosition keeps a note inside the currently visible part of the map
-// so it can never be dropped outside the canvas and lost.
 function clampNotePosition(x, y, element) {
   const canvas = mapCanvas.getBoundingClientRect();
   const { tx, ty, k } = { tx: pageState.transform.x, ty: pageState.transform.y, k: pageState.transform.k };
@@ -1385,9 +1352,6 @@ async function deleteNote(element) {
   mapEmptyState.classList.toggle("hidden", pageState.map.nodes.length > 0 || pageState.map.notes.length > 0);
 }
 
-// ---------------------------------------------------------------------------
-// Auto refresh
-// ---------------------------------------------------------------------------
 
 function startAutoRefresh() {
   if (pageState.autoRefreshTimer) {
@@ -1405,17 +1369,20 @@ function startAutoRefresh() {
   }, AUTO_REFRESH_MS);
 }
 
-// ---------------------------------------------------------------------------
-// pscan console
-// ---------------------------------------------------------------------------
 
 function setScanOutput(message, type = "muted") {
+  if (!scanOutput) {
+    return;
+  }
   scanOutput.textContent = message || "";
   scanOutput.classList.toggle("error-text", type === "error");
   scanOutput.classList.toggle("muted", type !== "error");
 }
 
 function setScanState(text) {
+  if (!scanStateChip) {
+    return;
+  }
   if (!text) {
     scanStateChip.classList.add("hidden");
     scanStateChip.textContent = "";
@@ -1423,6 +1390,45 @@ function setScanState(text) {
   }
   scanStateChip.classList.remove("hidden");
   scanStateChip.textContent = text;
+}
+
+
+function postScanModuleJson(url, body, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 90000);
+    fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    }).then(async (response) => {
+      clearTimeout(timer);
+      try {
+        resolve(await response.json());
+      } catch (error) {
+        reject(error);
+      }
+    }).catch(() => {
+      clearTimeout(timer);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.timeout = timeoutMs || 90000;
+      xhr.onload = () => {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.onerror = () => reject(new Error("scan request failed"));
+      xhr.ontimeout = () => reject(new Error("scan request timed out"));
+      xhr.send(JSON.stringify(body));
+    });
+  });
 }
 
 async function runScan() {
@@ -1434,7 +1440,6 @@ async function runScan() {
   const [stableId, connectionId] = selected.split("|");
   const targets = scanTargetsInput.value.trim();
   const ports = scanPortsInput.value.trim();
-  // 0 means no execution deadline at all; positive values are capped at 600s.
   const timeoutSeconds = Math.min(600, Math.max(0, Number(scanTimeoutInput.value) || 0));
 
   if (!stableId) {
@@ -1446,8 +1451,6 @@ async function runScan() {
     return;
   }
 
-  // Text mode prints only open ports, so big scans stay far below the
-  // module output limit (JSON mode streams closed-port results too).
   const args = ["-h", targets];
   if (ports) {
     args.push("-p", ports);
@@ -1457,20 +1460,27 @@ async function runScan() {
   runScanButton.disabled = true;
   runScanButton.textContent = "Scanning...";
   setScanState("pscan running");
-  setScanOutput(`Running pscan -h ${targets}${ports ? ` -p ${ports}` : ""} from ${scanHostSelect.options[scanHostSelect.selectedIndex]?.textContent || stableId}. Large targets can take a while.`);
+  const scanStartedAt = Date.now();
+  const portsNote = ` -p ${ports || "default set"}`;
+  setScanOutput(`Running pscan -h ${targets}${portsNote} from ${scanHostSelect.options[scanHostSelect.selectedIndex]?.textContent || stableId}. Elapsed: 0s`);
+  const scanTicker = window.setInterval(() => {
+    const elapsed = Math.round((Date.now() - scanStartedAt) / 1000);
+    setScanOutput(`Running pscan -h ${targets}${portsNote} from ${scanHostSelect.options[scanHostSelect.selectedIndex]?.textContent || stableId}. Elapsed: ${elapsed}s`);
+  }, 1000);
 
   try {
-    const response = await api(withProjectQuery(`/api/hosts/modules/pscan/run`, pageState.ctx?.project || ""), {
-      method: "POST",
-      body: JSON.stringify({
+      const response = await postScanModuleJson(
+      withProjectQuery(`/api/hosts/modules/pscan/run`, pageState.ctx?.project || ""),
+      {
         targets: [{ stableId, connectionId: connectionId || "" }],
         args,
         stdin: "",
         stdinBase64: "",
         timeoutSeconds,
         outputLimitBytes: 1024 * 1024
-      })
-    });
+      },
+      Math.max(15000, (timeoutSeconds || 600) * 1000)
+    );
 
     const result = (response.items || [])[0] || {};
     const output = result.output || "";
@@ -1499,6 +1509,7 @@ async function runScan() {
   } catch (error) {
     setScanOutput(error.message, "error");
   } finally {
+    window.clearInterval(scanTicker);
     pageState.scanning = false;
     runScanButton.disabled = false;
     runScanButton.textContent = "Run scan";
@@ -1510,26 +1521,27 @@ function countDiscoveredIPs(output) {
   const ips = new Set();
   String(output || "").split("\n").forEach((line) => {
     line = line.trim();
-    if (!line.startsWith("{")) {
+    if (!line) {
       return;
     }
-    try {
-      const payload = JSON.parse(line);
-      if (payload.open && payload.ip) {
-        ips.add(payload.ip);
+    if (line.startsWith("{")) {
+      try {
+        const payload = JSON.parse(line);
+        if (payload.open && payload.ip) {
+          ips.add(payload.ip);
+        }
+      } catch (error) {
       }
-    } catch (error) {
-      const match = line.match(/^(\S+?):(\d+)(?:\/\w+)?\s+open\b/);
-      if (match) {
-        ips.add(match[1]);
-      }
+      return;
+    }
+    const match = line.match(/^(\S+?):(\d+)(?:\/\w+)?\s+open\b/);
+    if (match) {
+      ips.add(match[1]);
     }
   });
   return ips.size;
 }
 
-// pscan reports argument and target problems as plain output text instead of a
-// failed request, so surface the last error-looking line to the operator.
 function extractOutputError(output) {
   const lines = String(output || "").split("\n").map((line) => line.trim()).filter(Boolean);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -1556,9 +1568,6 @@ function unquoteSubsystemError(value) {
   return message.replaceAll('\\"', '"').trim();
 }
 
-// ---------------------------------------------------------------------------
-// Clear scan data
-// ---------------------------------------------------------------------------
 
 function openClearMapModal() {
   clearMapError.textContent = "";

@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Session state for one operator channel inside the jump server,
-/// or a session channel on the control connection.
 pub struct SessionCtx<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static = Msg> {
     pub writer: Arc<ChannelWriteHalf<S>>,
     pub pty: std::sync::Mutex<Option<Arc<super::sx::PtyState>>>,
@@ -24,13 +22,10 @@ pub struct JumpServerHandler {
     pub sessions: Arc<Mutex<HashMap<ChannelId, Arc<SessionCtx>>>>,
 }
 
-/// Serve the "jump" channel: run an SSH server inside the agent process
-/// bridged over the channel, mirroring the Go client's JumpHandler.
 pub async fn serve(channel: Channel<russh::client::Msg>, key: Arc<russh::keys::PrivateKey>) {
     let channel_stream = channel.into_stream();
     let (client_side, server_side) = tokio::io::duplex(64 * 1024);
 
-    // Bridge the C2 channel and the in-memory pipe the SSH server runs on.
     let bridge = tokio::spawn(async move {
         let mut stream = channel_stream;
         let mut client_side = client_side;
@@ -79,7 +74,7 @@ impl server::Handler for JumpServerHandler {
     ) -> Result<(), Self::Error> {
         reply.accept().await;
         let (reader, writer) = channel.split();
-        drop(reader); // data arrives via typed handler callbacks
+        drop(reader);
         let (stdin_tx, stdin_rx) = tokio::sync::mpsc::unbounded_channel();
         let ctx = Arc::new(SessionCtx {
             writer: Arc::new(writer),
@@ -134,8 +129,17 @@ impl server::Handler for JumpServerHandler {
             return Ok(());
         };
         session.channel_success(channel)?;
+        let conn = session.handle();
         tokio::spawn(async move {
             super::sx::run_shell(ctx).await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let _ = conn
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "session finished".into(),
+                    String::new(),
+                )
+                .await;
         });
         Ok(())
     }
@@ -151,8 +155,17 @@ impl server::Handler for JumpServerHandler {
         };
         session.channel_success(channel)?;
         let command = String::from_utf8_lossy(data).to_string();
+        let conn = session.handle();
         tokio::spawn(async move {
             super::sx::run_exec(ctx, command).await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let _ = conn
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "session finished".into(),
+                    String::new(),
+                )
+                .await;
         });
         Ok(())
     }
@@ -168,8 +181,17 @@ impl server::Handler for JumpServerHandler {
         };
         session.channel_success(channel)?;
         let name = name.to_string();
+        let conn = session.handle();
         tokio::spawn(async move {
             super::sx::run_subsystem(ctx, name).await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let _ = conn
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "session finished".into(),
+                    String::new(),
+                )
+                .await;
         });
         Ok(())
     }

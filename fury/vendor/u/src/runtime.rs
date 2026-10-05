@@ -17,7 +17,18 @@ pub struct JoinHandle<T>
 where
     T: Send,
 {
-    handle: tokio::sync::oneshot::Receiver<T>,
+    handle: std::sync::Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<T>>>>,
+}
+
+impl<T> Clone for JoinHandle<T>
+where
+    T: Send,
+{
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -44,7 +55,9 @@ where
         let result = future.await;
         let _ = sender.send(result);
     });
-    JoinHandle { handle: receiver }
+    JoinHandle {
+        handle: std::sync::Arc::new(tokio::sync::Mutex::new(Some(receiver))),
+    }
 }
 
 impl<T> Future for JoinHandle<T>
@@ -53,11 +66,25 @@ where
 {
     type Output = Result<T, JoinError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.handle).poll(cx) {
-            Poll::Ready(Ok(val)) => Poll::Ready(Ok(val)),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(JoinError)),
-            Poll::Pending => Poll::Pending,
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let inner = self.handle.clone();
+        let mut guard = match inner.try_lock() {
+            Ok(g) => g,
+            Err(_) => return Poll::Pending,
+        };
+        match guard.as_mut() {
+            Some(rx) => match Pin::new(rx).poll(cx) {
+                Poll::Ready(Ok(val)) => {
+                    *guard = None;
+                    Poll::Ready(Ok(val))
+                }
+                Poll::Ready(Err(_)) => {
+                    *guard = None;
+                    Poll::Ready(Err(JoinError))
+                }
+                Poll::Pending => Poll::Pending,
+            },
+            None => Poll::Ready(Err(JoinError)),
         }
     }
 }

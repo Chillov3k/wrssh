@@ -1,6 +1,3 @@
-// Port scanner subsystem, a faithful port of the Go pscan engine
-// (internal/client/handlers/subsystems/pscan/engine): identical CLI,
-// identical result JSON/line formats, same probes and limits.
 
 use crate::md::Manifest;
 use std::collections::HashMap;
@@ -190,9 +187,6 @@ fn json_escape(value: &str) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Argument parsing (mirrors the Go engine's parse.go)
-// ---------------------------------------------------------------------------
 
 fn normalize_fscan_args(args: &[String]) -> Vec<String> {
     let mut out = Vec::with_capacity(args.len());
@@ -252,7 +246,6 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             i += 1;
             continue;
         }
-        // Go's flag package accepts both -flag and --flag.
         let flag = raw_flag.trim_start_matches('-').to_string();
         let flag_str = flag.as_str();
         match flag_str {
@@ -603,7 +596,6 @@ fn iter_cidr(base: IpAddr, mask: u8) -> Result<Vec<IpAddr>, String> {
     Ok(out)
 }
 
-/// Go-style duration parsing (ns, us, ms, s, m, h with fractions).
 fn parse_go_duration(value: &str) -> Result<Duration, String> {
     let raw = value.trim();
     if raw.is_empty() {
@@ -652,7 +644,6 @@ fn parse_go_duration(value: &str) -> Result<Duration, String> {
     Ok(Duration::from_nanos(total_ns as u64))
 }
 
-/// Go-style duration formatting (e.g. 30m0s, 1h30m0s, 750ms).
 fn format_go_duration(duration: Duration) -> String {
     let total_secs = duration.as_secs();
     let hours = total_secs / 3600;
@@ -672,9 +663,6 @@ fn format_go_duration(duration: Duration) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Scanning
-// ---------------------------------------------------------------------------
 
 struct RateLimiter {
     interval: Option<Duration>,
@@ -722,22 +710,83 @@ pub async fn run<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 
 
     let scan_cfg = cfg.clone();
     let scan_cancelled = cancelled.clone();
+    let producer_emitted = emitted_bytes.clone();
     let producer = tokio::spawn(async move {
-        scan(scan_cfg, limiter, tx, scan_cancelled, emitted_bytes).await
+        scan(scan_cfg, limiter, tx, scan_cancelled, producer_emitted).await
     });
 
-    while let Some(result) = rx.recv().await {
-        let payload = if cfg.json {
-            format!("{}\n", result.to_json())
-        } else if result.open {
-            format!("{}\n", result.to_line())
-        } else {
-            continue;
+    let mut out_buf: Vec<u8> = Vec::with_capacity(32 * 1024);
+    let mut captured_output = String::new();
+    let mut flush = tokio::time::interval(std::time::Duration::from_millis(200));
+    flush.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        let maybe_result = tokio::select! {
+            biased;
+            _ = flush.tick() => None,
+            r = rx.recv() => r,
         };
-        if io.writer.data_bytes(payload.into_bytes()).await.is_err() {
+        match maybe_result {
+            Some(result) => {
+                let payload = if cfg.json {
+                    format!("{}\n", result.to_json())
+                } else if result.open {
+                    format!("{}\n", result.to_line())
+                } else {
+                    continue;
+                };
+                emitted_bytes.fetch_add(payload.len(), Ordering::SeqCst);
+                captured_output.push_str(&payload);
+                out_buf.extend_from_slice(payload.as_bytes());
+                if out_buf.len() >= 16 * 1024 {
+                    if io.writer.data_bytes(std::mem::take(&mut out_buf)).await.is_err() {
+                        cancelled.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                }
+            }
+            None => {
+                if !out_buf.is_empty() {
+                    if io.writer.data_bytes(std::mem::take(&mut out_buf)).await.is_err() {
+                        cancelled.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                }
+                if producer.is_finished() {
+                    while let Ok(result) = rx.try_recv() {
+                        let payload = if cfg.json {
+                            format!("{}\n", result.to_json())
+                        } else if result.open {
+                            format!("{}\n", result.to_line())
+                        } else {
+                            continue;
+                        };
+                        emitted_bytes.fetch_add(payload.len(), Ordering::SeqCst);
+                        out_buf.extend_from_slice(payload.as_bytes());
+                        if out_buf.len() >= 16 * 1024 {
+                            if io.writer.data_bytes(std::mem::take(&mut out_buf)).await.is_err() {
+                                cancelled.store(true, Ordering::SeqCst);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if emitted_bytes.load(Ordering::SeqCst) > 8 * 1024 * 1024 {
             cancelled.store(true, Ordering::SeqCst);
             break;
         }
+    }
+    if !out_buf.is_empty() {
+        let _ = io.writer.data_bytes(out_buf).await;
+    }
+    if let Some(source) = crate::ip::internal_ip() {
+        crate::report::pscan(
+            &source,
+            &captured_output,
+            tokio::runtime::Handle::current(),
+        );
     }
 
     match producer.await {
@@ -753,14 +802,18 @@ async fn scan(
     cancelled: Arc<AtomicBool>,
     emitted_bytes: Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<(), String> {
-    const MAX_EMITTED_BYTES: usize = 8 * 1024 * 1024;
     let deadline = if cfg.max_duration > Duration::ZERO {
         Some(tokio::time::Instant::now() + cfg.max_duration)
     } else {
         None
     };
+    let deadline = Arc::new(deadline);
+    let deadline_hit = Arc::new(AtomicBool::new(false));
+    let scanned_jobs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let queued_jobs = std::sync::atomic::AtomicUsize::new(0);
 
-    let (job_tx, job_rx) = mpsc::unbounded_channel::<(IpAddr, u16, Protocol)>();
+    const JOB_QUEUE: usize = 4096;
+    let (job_tx, job_rx) = mpsc::channel::<(IpAddr, u16, Protocol)>(JOB_QUEUE);
     let job_rx = Arc::new(tokio::sync::Mutex::new(job_rx));
 
     let mut workers = Vec::with_capacity(cfg.workers);
@@ -770,14 +823,19 @@ async fn scan(
         let limiter = limiter.clone();
         let timeout = cfg.timeout;
         let cancelled = cancelled.clone();
-        let emitted = emitted_bytes.clone();
+        let deadline = deadline.clone();
+        let deadline_hit = deadline_hit.clone();
+        let scanned_jobs = scanned_jobs.clone();
         workers.push(tokio::spawn(async move {
             loop {
                 if cancelled.load(Ordering::SeqCst) {
                     break;
                 }
-                if emitted.load(Ordering::SeqCst) > MAX_EMITTED_BYTES {
-                    break;
+                if let Some(dl) = *deadline {
+                    if tokio::time::Instant::now() >= dl {
+                        deadline_hit.store(true, Ordering::SeqCst);
+                        break;
+                    }
                 }
                 let job = {
                     let mut guard = rx.lock().await;
@@ -792,8 +850,8 @@ async fn scan(
                     }
                 };
                 limiter.wait().await;
+                scanned_jobs.fetch_add(1, Ordering::SeqCst);
                 let result = scan_one(timeout, job.0, job.1, job.2).await;
-                emitted.fetch_add(160, Ordering::SeqCst);
                 if tx.send(result).is_err() {
                     break;
                 }
@@ -802,21 +860,41 @@ async fn scan(
     }
 
     let mut deadline_exceeded = false;
-    for host in &cfg.hosts {
+    'outer: for host in &cfg.hosts {
         for port in &cfg.ports {
             for protocol in &cfg.protocols {
-                if emitted_bytes.load(Ordering::SeqCst) > MAX_EMITTED_BYTES
-                    || cancelled.load(Ordering::SeqCst)
-                {
-                    break;
+                if cancelled.load(Ordering::SeqCst) {
+                    break 'outer;
                 }
-                if let Some(deadline) = deadline {
-                    if tokio::time::Instant::now() >= deadline {
+                if let Some(dl) = *deadline {
+                    if tokio::time::Instant::now() >= dl {
                         deadline_exceeded = true;
-                        break;
+                        break 'outer;
                     }
                 }
-                if job_tx.send((*host, *port, *protocol)).is_err() {
+                queued_jobs.fetch_add(1, Ordering::SeqCst);
+                let send_fut = job_tx.send((*host, *port, *protocol));
+                tokio::pin!(send_fut);
+                loop {
+                    let send_result = tokio::select! {
+                        biased;
+                        res = &mut send_fut => res,
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                            if cancelled.load(Ordering::SeqCst) {
+                                break 'outer;
+                            }
+                            if let Some(dl) = *deadline {
+                                if tokio::time::Instant::now() >= dl {
+                                    deadline_exceeded = true;
+                                    break 'outer;
+                                }
+                            }
+                            continue;
+                        }
+                    };
+                    if send_result.is_err() {
+                        break 'outer;
+                    }
                     break;
                 }
             }
@@ -828,8 +906,17 @@ async fn scan(
     }
     drop(tx);
 
-    if deadline_exceeded && cfg.max_duration > Duration::ZERO {
-        return Err(format!("scan exceeded --max-duration {}", format_go_duration(cfg.max_duration)));
+    let _ = emitted_bytes;
+    if deadline_exceeded || deadline_hit.load(Ordering::SeqCst) {
+        if cfg.max_duration > Duration::ZERO {
+            return Err(format!(
+                "scan exceeded --max-duration {} (queued {} of {} jobs, completed {})",
+                format_go_duration(cfg.max_duration),
+                queued_jobs.load(Ordering::SeqCst),
+                cfg.hosts.len() * cfg.ports.len() * cfg.protocols.len(),
+                scanned_jobs.load(Ordering::SeqCst)
+            ));
+        }
     }
     Ok(())
 }
@@ -998,9 +1085,6 @@ fn udp_state_from_error(error: &std::io::Error) -> String {
     "open|filtered".to_string()
 }
 
-// ---------------------------------------------------------------------------
-// HTTP(S) metadata probing
-// ---------------------------------------------------------------------------
 
 fn web_probe_schemes(port: u16) -> [&'static str; 2] {
     match port {
@@ -1220,9 +1304,6 @@ fn html_unescape(input: &str) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// NetBIOS name service probing
-// ---------------------------------------------------------------------------
 
 fn build_nbns_node_status_request(transaction_id: u16) -> Vec<u8> {
     let mut packet = Vec::with_capacity(50);

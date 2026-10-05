@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/NHAS/reverse_ssh/internal"
+	"github.com/NHAS/reverse_ssh/internal/platform/networkmap"
+	"github.com/NHAS/reverse_ssh/internal/server/data"
 	"github.com/NHAS/reverse_ssh/internal/server/handlers"
 	"github.com/NHAS/reverse_ssh/internal/server/observers"
 	"github.com/NHAS/reverse_ssh/internal/server/users"
@@ -552,10 +555,70 @@ func handleClientRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 			if req.WantReply {
 				req.Reply(true, nil)
 			}
+				case PscanReportRequest:
+			if !recordManualPscanReport(conn, req.Payload) && req.WantReply {
+				req.Reply(false, nil)
+				continue
+			}
+			if req.WantReply {
+				req.Reply(true, nil)
+			}
 		default:
 			if req.WantReply {
 				req.Reply(false, nil)
 			}
 		}
 	}
+}
+
+const PscanReportRequest = "wrssh-pscan-report"
+
+func recordManualPscanReport(conn *ssh.ServerConn, payload []byte) bool {
+	readString := func(b []byte) (string, []byte, bool) {
+		if len(b) < 4 {
+			return "", b, false
+		}
+		n := int(binary.BigEndian.Uint32(b))
+		if len(b) < 4+n {
+			return "", b, false
+		}
+		return string(b[4 : 4+n]), b[4+n:], true
+	}
+	sourceIP, rest, ok := readString(payload)
+	if !ok {
+		return false
+	}
+	output, _, ok := readString(rest)
+	if !ok {
+		return false
+	}
+	sourceIP = strings.TrimSpace(sourceIP)
+	if sourceIP == "" {
+		if host, _, err := net.SplitHostPort(conn.RemoteAddr().String()); err == nil {
+			sourceIP = host
+		}
+	}
+	discoveries := networkmap.ParsePscanOutput(output)
+	if sourceIP == "" || len(discoveries) == 0 {
+		return false
+	}
+
+	targets := make([]data.NetworkScanTarget, 0, len(discoveries))
+	for _, d := range discoveries {
+		ports := make([]string, 0, len(d.Ports))
+		for _, p := range d.Ports {
+			ports = append(ports, p.Label())
+		}
+		targets = append(targets, data.NetworkScanTarget{
+			IP:       d.IP,
+			Hostname: d.Hostname,
+			OS:       d.OS,
+			Ports:    ports,
+		})
+	}
+	if err := data.UpsertNetworkScan(sourceIP, targets); err != nil {
+		log.Printf("[network-map] manual pscan report upsert failed: %v", err)
+		return false
+	}
+	return true
 }

