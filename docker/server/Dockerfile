@@ -16,8 +16,8 @@ RUN set -eu; \
         i386) native_goarch=386 ;; \
         *) native_goarch="" ;; \
     esac; \
-    if [ -n "$native_goarch" ] && [ -x /bin/busybox ]; then \
-        install -m 0755 /bin/busybox "/usr/local/share/wrssh/busybox/linux-$native_goarch"; \
+    if [ -n "$native_goarch" ] && [ -x /usr/bin/busybox ]; then \
+        install -m 0755 /usr/bin/busybox "/usr/local/share/wrssh/busybox/linux-$native_goarch"; \
     fi; \
     download_dir="$(mktemp -d)"; \
     cd "$download_dir"; \
@@ -29,7 +29,7 @@ RUN set -eu; \
         apt-get download "busybox-static:$debarch"; \
         deb="$(find . -maxdepth 1 -name "busybox-static_*_${debarch}.deb" -print -quit)"; \
         dpkg-deb -x "$deb" "$download_dir/$goarch"; \
-        install -m 0755 "$download_dir/$goarch/bin/busybox" "/usr/local/share/wrssh/busybox/linux-$goarch"; \
+        install -m 0755 "$download_dir/$goarch/usr/bin/busybox" "/usr/local/share/wrssh/busybox/linux-$goarch"; \
     done; \
     rm -rf "$download_dir" /var/lib/apt/lists/*
 
