@@ -32,6 +32,8 @@ SUMMARY.md
 README.webui.md
 LICENSE
 .github/*
+!.github/workflows/
+!.github/workflows/*.yml
 .dockerignore
 !README.md
 .gocache

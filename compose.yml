@@ -25,13 +25,13 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   platform:
-    image: ${WEB_PLATFORM_IMAGE:-wrssh-platform:local}
-    build:
-      context: .
-      dockerfile: docker/platform/Dockerfile
+    image: ${WEB_PLATFORM_IMAGE:-s4ar1488/wrssh-platform:latest}
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      WEB_RUNTIME_IMAGE: ${WEB_RUNTIME_IMAGE:-s4ar1488/wrssh-runtime:latest}
     depends_on:
       runtime-image:
         condition: service_completed_successfully
@@ -48,10 +48,8 @@ services:
       - "${CONTROL_PLANE_SSH_PORT}:${RSSH_PORT}"
 
   frontend:
-    image: ${WEB_FRONTEND_IMAGE:-wrssh-frontend:local}
-    build:
-      context: .
-      dockerfile: docker/frontend/Dockerfile
+    image: ${WEB_FRONTEND_IMAGE:-s4ar1488/wrssh-frontend:latest}
+    pull_policy: always
     restart: unless-stopped
     env_file:
       - .env
@@ -65,10 +63,8 @@ services:
       - "${WEB_UI_PORT}:443"
 
   runtime-image:
-    image: ${WEB_RUNTIME_IMAGE:-wrssh-runtime:local}
-    build:
-      context: .
-      dockerfile: docker/runtime/Dockerfile
+    image: ${WEB_RUNTIME_IMAGE:-s4ar1488/wrssh-runtime:latest}
+    pull_policy: always
     network_mode: none
     read_only: true
     restart: "no"

@@ -109,6 +109,9 @@ Example:
 ```dotenv
 WEB_UI_PORT=8080
 WEB_DOMAIN=
+WEB_PLATFORM_IMAGE=s4ar1488/wrssh-platform:latest
+WEB_FRONTEND_IMAGE=s4ar1488/wrssh-frontend:latest
+WEB_RUNTIME_IMAGE=s4ar1488/wrssh-runtime:latest
 CONTROL_PLANE_SSH_PORT=2222
 RSSH_PORT=2222
 RSSH_EXTERNAL_ADDRESS=192.168.1.1:2222
@@ -133,7 +136,8 @@ WEB_RUNTIME_BIND_IP=0.0.0.0
 ## How To Start
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 ## Get web path of login page
 
@@ -143,7 +147,7 @@ docker exec wrssh-frontend-1 cat /data/.web_entry_path
 
 What happens:
 
-- `platform`, `frontend`, and the `wrssh-runtime:local` template image are built;
+- `platform`, `frontend`, and the runtime template image are pulled from Docker Hub;
 - the main Postgres is started;
 - the control plane is started;
 - the web UI becomes available at `http://<host>:<WEB_UI_PORT>`.
