@@ -1,4 +1,4 @@
-FROM golang:1.24.5-bullseye
+FROM golang:1.24.13-trixie
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN set -eu; \
 RUN go install mvdan.cc/garble@v0.14.2
 
 ENV PATH="${PATH}:$(go env GOPATH)/bin"
-ENV GOTOOLCHAIN=go1.24.5+auto
+ENV GOTOOLCHAIN=go1.24.13+auto
 
 COPY go.mod go.sum ./
 RUN go mod download -x
