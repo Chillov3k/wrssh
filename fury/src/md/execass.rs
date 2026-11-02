@@ -6,13 +6,12 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_OUTPUT_BYTES: i64 = 1024 * 1024;
 const DEFAULT_PROCESS_NAME: &str = "notepad.exe";
-const HELPER_ARG: &str = "--wrssh-execass-helper";
 
 pub fn manifest() -> Manifest {
     let mut m = Manifest::name_only(&crate::ob!("execass"));
     m.description = crate::ob!("Windows-only .NET assembly runner; reads the artifact from stdin by default.");
     m.version = crate::ob!("1").to_string();
-    m.usage = crate::ob!("execass [--artifact <client-path>] [--sha256 <digest>] [--args '<assembly args>'] [--in-process] [--runtime v4] [--timeout 30s] [--output-limit bytes] [--debug]").to_string();
+    m.usage = crate::ob!("execass [--artifact <client-path>] [--sha256 <digest>] [--args '<assembly args>'] [--runtime v4] [--timeout 30s] [--output-limit bytes] [--debug]").to_string();
     m.build_tags = vec![crate::ob!("execass")];
     m.platforms = vec![crate::ob!("windows")];
     m.dangerous = true;
@@ -35,7 +34,6 @@ struct Request {
     timeout_secs: u64,
     debug: bool,
     artifact: Vec<u8>,
-    in_process: bool,
     runtime: String,
     process_name: String,
     assembly_args: String,
@@ -76,7 +74,7 @@ fn parse_request(args: &[String]) -> Result<Request, String> {
                 output_limit = v.parse::<i64>().map_err(|_| format!("invalid value for --output-limit: {}", v))?;
             }
             f if f == crate::ob!("--debug") => request.debug = true,
-            f if f == crate::ob!("--in-process") => request.in_process = true,
+            f if f == crate::ob!("--in-process") => {}
             f if f == crate::ob!("--runtime") => request.runtime = next_value(&args, &mut i, inline, flag_str)?,
             f if f == crate::ob!("--process") => request.process_name = next_value(&args, &mut i, inline, flag_str)?,
             f if f == crate::ob!("--process-args") => {
@@ -102,9 +100,6 @@ fn parse_request(args: &[String]) -> Result<Request, String> {
     }
     if request.runtime.is_empty() {
         return Err(crate::ob!("--runtime must not be empty").to_string());
-    }
-    if !request.in_process && request.process_name.is_empty() {
-        return Err(crate::ob!("--process must not be empty").to_string());
     }
     if output_limit <= 0 || output_limit > DEFAULT_OUTPUT_BYTES {
         return Err(format!("--output-limit exceeds maximum of {} bytes", DEFAULT_OUTPUT_BYTES));
@@ -232,87 +227,6 @@ pub fn shlex_split(input: &str) -> Result<Vec<String>, String> {
     Ok(args)
 }
 
-fn base64_encode(data: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
-    for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let triple = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
-        out.push(ALPHABET[(triple >> 18) as usize & 0x3f] as char);
-        out.push(ALPHABET[(triple >> 12) as usize & 0x3f] as char);
-        out.push(if chunk.len() > 1 { ALPHABET[(triple >> 6) as usize & 0x3f] as char } else { '=' });
-        out.push(if chunk.len() > 2 { ALPHABET[triple as usize & 0x3f] as char } else { '=' });
-    }
-    out
-}
-
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut lookup = [255u8; 256];
-    for (index, byte) in TABLE.iter().enumerate() {
-        lookup[*byte as usize] = index as u8;
-    }
-    let mut out = Vec::with_capacity(input.len() / 4 * 3);
-    let mut buffer: u32 = 0;
-    let mut bits = 0u32;
-    for ch in input.bytes() {
-        if ch == b'=' || ch == b'\n' || ch == b'\r' {
-            continue;
-        }
-        let value = lookup[ch as usize];
-        if value == 255 {
-            return Err(crate::ob!("invalid base64").to_string());
-        }
-        buffer = (buffer << 6) | value as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((buffer >> bits) as u8);
-        }
-    }
-    Ok(out)
-}
-
-fn helper_request_json(artifact_b64: &str, runtime: &str, assembly_args: &str, debug: bool) -> String {
-    let escape = |v: &str| v.replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        "{{\"{}\":\"{}\",\"{}\":\"{}\",\"{}\":\"{}\",\"{}\":{}}}",
-        crate::ob!("artifactBase64"),
-        artifact_b64,
-        crate::ob!("runtime"),
-        escape(runtime),
-        crate::ob!("assemblyArgs"),
-        escape(assembly_args),
-        crate::ob!("debug"),
-        debug
-    )
-}
-
-fn helper_json_string_field(input: &str, key: &str) -> Option<String> {
-    let marker = format!("\"{}\":\"", key);
-    let start = input.find(&marker)? + marker.len();
-    let rest = &input[start..];
-    let mut out = String::new();
-    let mut escaped = false;
-    for ch in rest.chars() {
-        if escaped {
-            out.push(ch);
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' => escaped = true,
-            '"' => return Some(out),
-            c => out.push(c),
-        }
-    }
-    None
-}
-
-fn helper_json_bool_field(input: &str, key: &str) -> bool {
-    input.contains(&format!("\"{}\":true", key))
-}
-
 pub async fn run<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static>(
     args: &[String],
     io: &mut crate::md::ModuleIo<S>,
@@ -354,11 +268,7 @@ async fn execute<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 
 ) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        if request.in_process {
-            execute_in_process(request, io).await
-        } else {
-            execute_out_of_process(request, io).await
-        }
+        execute_in_process(request, io).await
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -395,141 +305,6 @@ async fn execute_in_process<S: From<(russh::ChannelId, russh::ChannelMsg)> + Sen
     handle.await.map_err(|e| e.to_string())?;
     Ok(())
 }
-
-#[cfg(target_os = "windows")]
-async fn execute_out_of_process<S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static>(
-    request: Request,
-    io: &mut IoRef<'_, S>,
-) -> Result<(), String> {
-    if request.process_name != DEFAULT_PROCESS_NAME {
-        io.write_err(&crate::ob!("[WRN] Custom process injection flags are not supported; using isolated helper process"))
-            .await;
-    }
-
-    let executable = std::env::current_exe()
-        .map_err(|e| format!("{}{}", crate::ob!("failed to resolve current executable: "), e))?
-        .to_string_lossy()
-        .into_owned();
-
-    let request_json = helper_request_json(
-        &base64_encode(&request.artifact),
-        &request.runtime,
-        &request.assembly_args,
-        request.debug,
-    );
-    let json_for_task = request_json.clone();
-    let out = tokio::task::spawn_blocking(move || -> Result<(String, String), String> {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-        let mut child = Command::new(&executable)
-            .arg(crate::ob!("--wrssh-execass-helper"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags_windows()
-            .spawn()
-            .map_err(|e| format!("{}{}", crate::ob!("failed to start helper process: "), e))?;
-        {
-            let stdin = child.stdin.as_mut().ok_or(crate::ob!("failed to open helper stdin").to_string())?;
-            stdin
-                .write_all(json_for_task.as_bytes())
-                .map_err(|e| format!("{}{}", crate::ob!("failed to send helper request: "), e))?;
-        }
-        drop(child.stdin.take());
-        let output = child
-            .wait_with_output()
-            .map_err(|e| e.to_string())?;
-        Ok((
-            String::from_utf8_lossy(&output.stdout).into_owned(),
-            String::from_utf8_lossy(&output.stderr).into_owned(),
-        ))
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    match out {
-        Ok((stdout, stderr)) => {
-            if !stdout.is_empty() {
-                io.write_out(&stdout).await;
-            }
-            if !stderr.is_empty() {
-                io.write_err(&stderr).await;
-            }
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
-}
-
-#[cfg(target_os = "windows")]
-trait WindowsSpawnExt {
-    fn creation_flags_windows(&mut self) -> &mut Self;
-}
-
-#[cfg(target_os = "windows")]
-impl WindowsSpawnExt for std::process::Command {
-    fn creation_flags_windows(&mut self) -> &mut Self {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        self.creation_flags(CREATE_NO_WINDOW)
-    }
-}
-
-#[cfg(target_os = "windows")]
-pub fn run_helper() -> i32 {
-    use std::io::Read;
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        eprintln!("{}", crate::ob!("[ERR] invalid helper request"));
-        return 1;
-    }
-    let artifact_b64 = match helper_json_string_field(&input, &crate::ob!("artifactBase64")) {
-        Some(value) => value,
-        None => {
-            eprintln!("{}", crate::ob!("[ERR] invalid helper request"));
-            return 1;
-        }
-    };
-    let runtime = helper_json_string_field(&input, &crate::ob!("runtime")).unwrap_or_else(|| crate::ob!("v4").to_string());
-    let assembly_args = helper_json_string_field(&input, &crate::ob!("assemblyArgs")).unwrap_or_default();
-    let debug = helper_json_bool_field(&input, &crate::ob!("debug"));
-
-    let artifact = match base64_decode(&artifact_b64) {
-        Ok(artifact) => artifact,
-        Err(error) => {
-            eprintln!("{} {}", crate::ob!("[ERR]"), error);
-            return 1;
-        }
-    };
-    if artifact.is_empty() {
-        eprintln!("{}", crate::ob!("[ERR] artifact is empty"));
-        return 1;
-    }
-    let parsed_args = match shlex_split(&assembly_args) {
-        Ok(args) => args,
-        Err(error) => {
-            eprintln!("{} {}", crate::ob!("[ERR]"), error);
-            return 1;
-        }
-    };
-
-    let request = Request {
-        runtime,
-        debug,
-        artifact,
-        in_process: true,
-        ..Default::default()
-    };
-    let (stdout, stderr) = crate::md::execass::clr::invoke_in_process(&request, &parsed_args);
-    if !stdout.is_empty() {
-        clr::write_orig_stdout(&stdout);
-    }
-    if !stderr.is_empty() {
-        clr::write_orig(&format!("{}", stderr));
-    }
-    0
-}
-
 
 #[cfg(target_os = "windows")]
 pub mod clr {
@@ -657,16 +432,6 @@ pub mod clr {
                 return;
             }
             write_all_handle(ORIG_STDERR, text.as_bytes());
-        }
-    }
-
-    pub(crate) fn write_orig_stdout(text: &str) {
-        unsafe {
-            if ORIG_STDOUT.is_null() {
-                print!("{}", text);
-                return;
-            }
-            write_all_handle(ORIG_STDOUT, text.as_bytes());
         }
     }
 
@@ -1122,16 +887,5 @@ pub mod clr {
             let (stdout, stderr) = drain_buffers();
             (stdout, format!("{}{}", stderr, invoke_error))
         }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub use unsupported::run_helper;
-
-#[cfg(not(target_os = "windows"))]
-mod unsupported {
-    pub fn run_helper() -> i32 {
-        eprintln!("{}", crate::ob!("execass is unsupported on this platform"));
-        1
     }
 }
