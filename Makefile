@@ -54,6 +54,10 @@ client_dll: .generate_keys
 # default everywhere. Optional: FURY_OS=windows FURY_ARCH=amd64 RSSH_HOMESERVER=host:port RSSH_FINGERPRINT=hex
 FURY_DIR := fury
 
+ifeq ($(shell uname),Darwin)
+FURY_RUSTFLAGS := $(shell sh fury/tools/host-remap.sh $(CURDIR)/fury)
+endif
+
 fury:
 ifndef FURY
 	@echo "Fury is opt-in: use 'make fury FURY=1 [FURY_OS=windows] [RSSH_HOMESERVER=host:port] [RSSH_FINGERPRINT=hex]'"
@@ -70,6 +74,7 @@ endif
 	FURY_KEY_B64="$$CLIENT_KEY_B64" \
 	FURY_DEST="$(RSSH_HOMESERVER)" \
 	FURY_FINGERPRINT="$(RSSH_FINGERPRINT)" \
+	RUSTFLAGS="$(FURY_RUSTFLAGS)" \
 	cargo build --release $$BUILD_ARGS $${FURY_CARGO_FLAGS:-} && \
 	python3 tools/postbuild.py "$$OUT" && \
 	mkdir -p ../bin && cp "$$OUT" "$$DEST"

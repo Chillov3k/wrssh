@@ -1709,24 +1709,6 @@ impl Session {
             Msg::Channel(id, ChannelMsg::ExitStatus { exit_status }) => {
                 self.exit_status(id, exit_status)?;
             }
-            Msg::Channel(id, ChannelMsg::Eof) => {
-                self.eof(id)?;
-            }
-            Msg::Channel(id, ChannelMsg::Close) => {
-                self.close(id)?;
-            }
-            Msg::Channel(id, ChannelMsg::Data { data }) => {
-                self.data(id, data)?;
-            }
-            Msg::Channel(id, ChannelMsg::ExtendedData { ext, data }) => {
-                self.extended_data(id, ext, data)?;
-            }
-            Msg::Channel(id, ChannelMsg::Success) => {
-                self.channel_success(id)?;
-            }
-            Msg::Channel(id, ChannelMsg::Failure) => {
-                self.channel_failure(id)?;
-            }
             msg => {
                 // should be unreachable, since the receiver only gets
                 // messages from methods implemented within russh
