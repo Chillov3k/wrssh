@@ -1,21 +1,16 @@
-FROM golang:1.24.5-bullseye
+FROM golang:1.24.13-trixie
 
 WORKDIR /app
-
-RUN set -eu; \
-    snap="20260901T000000Z"; \
-    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/$snap bullseye main" > /etc/apt/sources.list; \
-    echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/$snap bullseye-security main" >> /etc/apt/sources.list; \
-    rm -f /etc/apt/sources.list.d/debian.sources
 
 RUN set -eu; \
     native_arch="$(dpkg --print-architecture)"; \
     for arch in amd64 arm64 i386; do \
         if [ "$arch" != "$native_arch" ]; then dpkg --add-architecture "$arch"; fi; \
     done; \
-    apt-get update -o Acquire::Retries=5; \
-    apt-get install -y --no-install-recommends -o Acquire::Retries=5 upx-ucl gcc-mingw-w64 ca-certificates busybox-static; \
-    apt-get install -y --no-install-recommends -o Acquire::Retries=5 gcc-aarch64-linux-gnu libc6-dev-arm64-cross || echo "warn: aarch64 cross toolchain unavailable, fury linux/arm64 builds disabled on this host"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends upx-ucl gcc-mingw-w64 ca-certificates busybox-static; \
+    apt-get install -y --no-install-recommends curl; \
+    apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross || echo "warn: aarch64 cross toolchain unavailable, fury linux/arm64 builds disabled on this host"; \
     mkdir -p /usr/local/share/wrssh/busybox; \
     case "$native_arch" in \
         amd64) native_goarch=amd64 ;; \
@@ -23,8 +18,8 @@ RUN set -eu; \
         i386) native_goarch=386 ;; \
         *) native_goarch="" ;; \
     esac; \
-    if [ -n "$native_goarch" ] && [ -x /bin/busybox ]; then \
-        install -m 0755 /bin/busybox "/usr/local/share/wrssh/busybox/linux-$native_goarch"; \
+    if [ -n "$native_goarch" ] && [ -x /usr/bin/busybox ]; then \
+        install -m 0755 /usr/bin/busybox "/usr/local/share/wrssh/busybox/linux-$native_goarch"; \
     fi; \
     download_dir="$(mktemp -d)"; \
     cd "$download_dir"; \
@@ -36,14 +31,10 @@ RUN set -eu; \
         apt-get download "busybox-static:$debarch"; \
         deb="$(find . -maxdepth 1 -name "busybox-static_*_${debarch}.deb" -print -quit)"; \
         dpkg-deb -x "$deb" "$download_dir/$goarch"; \
-        install -m 0755 "$download_dir/$goarch/bin/busybox" "/usr/local/share/wrssh/busybox/linux-$goarch"; \
+        install -m 0755 "$download_dir/$goarch/usr/bin/busybox" "/usr/local/share/wrssh/busybox/linux-$goarch"; \
     done; \
     rm -rf "$download_dir" /var/lib/apt/lists/*
 
-# Rust toolchain for Fury implant builds (see fury/README.md).
-# The linux/arm64 cross gcc is installed in the first apt block (it must be
-# resolved before the busybox multiarch/i386 packages trip apt up); if it is
-# missing, fury windows and native-linux builds still work fine.
 RUN set -eu; \
     curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal; \
     . "$HOME/.cargo/env"; \
@@ -56,12 +47,13 @@ ENV PATH="${PATH}:/root/.cargo/bin"
 RUN go install mvdan.cc/garble@v0.14.2
 
 ENV PATH="${PATH}:$(go env GOPATH)/bin"
-ENV GOTOOLCHAIN=go1.24.5+auto
+ENV GOTOOLCHAIN=go1.24.13+auto
 
-# Pre-fetch Fury dependencies so artifact builds work offline at runtime
+COPY go.mod go.sum ./
+RUN go mod download -x
+
 COPY fury/ ./fury/
-# fetch with RUSTFLAGS emptied: newer cargo probes rustc with build
-# rustflags for target info and chokes on the many remap-path-prefix flags
+
 RUN set -eu; \
     . "$HOME/.cargo/env"; \
     cd fury; \
@@ -69,9 +61,6 @@ RUN set -eu; \
     RUSTFLAGS= cargo fetch --locked --target i686-pc-windows-gnu; \
     if rustup target list --installed | grep -q aarch64-unknown-linux-gnu; then RUSTFLAGS= cargo fetch --locked --target aarch64-unknown-linux-gnu; fi; \
     RUSTFLAGS= cargo fetch --locked
-
-COPY go.mod go.sum ./
-RUN go mod download -x
 
 COPY . .
 COPY docker/platform/entrypoint.sh /app/entrypoint.sh
